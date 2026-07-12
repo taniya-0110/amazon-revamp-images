@@ -362,39 +362,29 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Get analysis results
-app.get('/api/analysis-results', (req, res) => {
+// Helper function to return unified, flat data structures
+function getUnifiedResultsPayload() {
   hydrateResultsFromDisk();
   currentResults.currentImage = getGeneratedCount();
-
-  if (!currentResults.analysis) {
-    return res.status(404).json({ 
-      success: false, 
-      error: 'No analysis results available yet' 
-    });
-  }
-
-  res.json({
+  
+  return {
     success: true,
+    status: currentStatus.status,
+    message: currentStatus.message,
     analysis: currentResults.analysis,
     generatedImages: currentResults.generatedImages,
     totalImages: currentResults.totalImages,
     currentImage: currentResults.currentImage,
-    rawResponse: currentResults.rawResponse
-  });
-});
-
-// Get all results
-app.get('/api/results', (req, res) => {
-  hydrateResultsFromDisk();
-  currentResults.currentImage = getGeneratedCount();
-
-  res.json({
-    success: true,
-    results: currentResults,
     generatedCount: getGeneratedCount(),
-    status: currentStatus.status
-  });
+    rawResponse: currentResults.rawResponse,
+    results: currentResults // Backwards compatibility for nested parsers
+  };
+}
+
+// Unified Endpoint: Handlers for BOTH prefixed and non-prefixed paths
+app.get(['/api/analysis-results', '/analysis-results', '/api/results', '/results'], (req, res) => {
+  const payload = getUnifiedResultsPayload();
+  res.json(payload);
 });
 
 // 🔄 MODIFIED: TRIGGER ENDPOINT NOW WIPES OUT PREVIOUS BROWSER & STALE FILES ON REFRESH

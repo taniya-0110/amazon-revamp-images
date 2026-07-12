@@ -752,88 +752,74 @@ class ChatGPTAutomation {
 
     console.log(`⏳ Waiting up to ${timeoutSeconds} seconds for response...`);
 
-    while (Date.now() - startTime < timeoutMs) {
-      try {
-        const stopButtons = await page.locator(
-          "button[aria-label*='Stop'], button[data-testid*='stop']"
-        );
-        const count = await stopButtons.count();
-        
-        if (count === 0) {
-          console.log('  ✅ Response generation complete (no stop button)');
-          await page.waitForTimeout(2000);
-          
-          const assistantMessages = await page.locator('[data-message-author-role="assistant"]');
-          const msgCount = await assistantMessages.count();
-          
-          if (msgCount > 0) {
-            const lastMessage = assistantMessages.last();
-            const text = await lastMessage.textContent();
-            if (text && text.trim()) {
-              if (text.length > 100) {
-                console.log(`  ✅ Response received (${text.length} characters)`);
-                return text;
-              }
-            }
-          }
-          return '';
-        } else {
-          const assistantMessages = await page.locator('[data-message-author-role="assistant"]');
-          const msgCount = await assistantMessages.count();
-          
-          if (msgCount > 0) {
-            const lastMessage = assistantMessages.last();
-            const text = await lastMessage.textContent();
-            const currentLength = text ? text.length : 0;
-            
-            if (currentLength > lastContentLength) {
-              lastContentLength = currentLength;
-              stableCount = 0;
-              if (currentLength > 50) {
-                console.log(`  📝 Response building... (${currentLength} characters)`);
-              }
-            } else if (currentLength > 0) {
-              stableCount++;
-              if (stableCount >= 3) {
-                console.log(`  ✅ Response stable (${currentLength} characters)`);
-                return text;
-              }
-            }
-          }
-        }
-      } catch (error) {
-        // Ignore
-      }
+    // Fix: Give ChatGPT a brief 3-second window to process the prompt and render the UI state
+  await page.waitForTimeout(3000);
 
-      await page.waitForTimeout(2000);
-      const elapsed = Math.round((Date.now() - startTime) / 1000);
-      if (elapsed % 10 === 0 && elapsed > 0) {
-        console.log(`  ⏳ Still waiting... ${elapsed}s`);
-        
-        this.updateStatus('analyzing_progress', {
-          message: `Analyzing images... ${elapsed}s elapsed`,
-          progress: Math.min(elapsed / timeoutSeconds, 1)
-        });
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const stopButtons = page.locator(
+        "button[aria-label*='Stop'], button[data-testid*='stop'], button[aria-label='Stop generating']"
+      );
+      const isGenerating = await stopButtons.count() > 0;
+      
+      const assistantMessages = page.locator('[data-message-author-role="assistant"]');
+      const msgCount = await assistantMessages.count();
+      
+      let currentText = '';
+      if (msgCount > 0) {
+        currentText = (await assistantMessages.last().textContent()) || '';
       }
+      const currentLength = currentText.trim().length;
+
+      if (isGenerating) {
+        // ChatGPT is actively typing
+        if (currentLength > lastContentLength) {
+          lastContentLength = currentLength;
+          stableCount = 0;
+          console.log(`  📝 Response building... (${currentLength} characters)`);
+        }
+      } else {
+        // No stop button visible. Verify if content is stable and valid.
+        if (currentLength > 100 && currentLength === lastContentLength) {
+          stableCount++;
+          if (stableCount >= 3) { // Must remain unchanged for 3 consecutive checks (6 seconds)
+            console.log(`  ✅ Response complete and stable (${currentLength} characters)`);
+            return currentText;
+          }
+        } else if (currentLength > lastContentLength) {
+          // Content is expanding even if the stop button briefly flickered away
+          lastContentLength = currentLength;
+          stableCount = 0;
+        } else if (currentLength > 100 && stableCount === 0) {
+          lastContentLength = currentLength;
+          stableCount = 1;
+        }
+      }
+    } catch (error) {
+      console.log(`  ⚠️ Error in response check loop: ${error.message}`);
     }
 
-    console.log('⚠️ Response wait timed out');
+    await page.waitForTimeout(2000);
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
     
-    try {
-      const assistantMessages = await page.locator('[data-message-author-role="assistant"]');
-      const msgCount = await assistantMessages.count();
-      if (msgCount > 0) {
-        const lastMessage = assistantMessages.last();
-        const text = await lastMessage.textContent();
-        if (text && text.trim()) {
-          console.log(`✅ Found partial response (${text.length} characters)`);
-          return text;
-        }
-      }
-    } catch (e) {}
-    
-    return '';
+    if (elapsed % 10 === 0 && elapsed > 0) {
+      this.updateStatus('analyzing_progress', {
+        message: `Analyzing images... ${elapsed}s elapsed`,
+        progress: Math.min(elapsed / timeoutSeconds, 1)
+      });
+    }
   }
+
+  console.log('⚠️ Response wait timed out');
+  try {
+    const assistantMessages = page.locator('[data-message-author-role="assistant"]');
+    if (await assistantMessages.count() > 0) {
+      return (await assistantMessages.last().textContent()) || '';
+    }
+  } catch (e) {}
+  
+  return '';
+}
 
   async handleGoogleLoginPrecise(page) {
     console.log('🔐 Handling Google login with precise selectors...');
@@ -1698,200 +1684,116 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
   }
 
   parseAnalysisResponse(response, originalImages) {
-    const results = {
-      individualScores: [],
-      overallScore: 'N/A',
-      detailedAnalysis: [],
-      rawResponse: response
-    };
+  const results = {
+    individualScores: [],
+    overallScore: 'N/A',
+    detailedAnalysis: [],
+    rawResponse: response
+  };
 
-    if (!response) {
-      return this.getFallbackAnalysis(originalImages);
-    }
+  // If ChatGPT returned nothing, bail out to fallback data safely
+  if (!response) {
+    return this.getFallbackAnalysis(originalImages);
+  }
 
-    try {
-      console.log('Parsing ChatGPT response...');
-      console.log('Full response preview:', response.substring(0, 500) + '...');
+  try {
+    console.log('Parsing ChatGPT response...');
+    const lines = response.split('\n');
+    let currentImage = null;
+    let currentSection = null;
+    let collectingReasons = false;
+    let imageNumber = 0;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
       
-      // Split by lines and also check for sections
-      const lines = response.split('\n');
-      let currentImage = null;
-      let currentSection = null;
-      let collectingReasons = false;
-      let foundAnyReasons = false;
-      let imageNumber = 0;
+      // 1. Match Image headers (e.g., "IMAGE 1:" or "Image 2")
+      const imageMatch = line.match(/^IMAGE\s*[:]?\s*(\d+)/i) || 
+                         line.match(/^Image\s*[:]?\s*(\d+)/i) || 
+                         line.match(/^#?IMAGE\s*(\d+)/i);
       
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        
-        // Skip empty lines
-        if (!line) continue;
-        
-        // Check for IMAGE X pattern (case insensitive, with or without colon)
-        const imageMatch = line.match(/^IMAGE\s*[:]?\s*(\d+)/i);
-        const imageMatch2 = line.match(/^Image\s*[:]?\s*(\d+)/i);
-        const imageMatch3 = line.match(/^#?IMAGE\s*(\d+)/i);
-        const imageNumMatch = imageMatch || imageMatch2 || imageMatch3;
-        
-        if (imageNumMatch) {
-          // Save previous image data
-          if (currentImage) {
-            results.detailedAnalysis.push(currentImage);
-          }
-          
-          // Start new image
-          imageNumber = parseInt(imageNumMatch[1]);
-          currentImage = {
-            imageNumber: imageNumber,
-            score: 'N/A',
-            reasonsForDeductedMarks: []
-          };
-          currentSection = 'image_header';
-          collectingReasons = false;
-          console.log(`  📸 Found IMAGE ${imageNumber}`);
-          continue;
-        }
-        
-        // Check for Score (multiple patterns)
-        const scoreMatch = line.match(/^Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i);
-        const scoreMatch2 = line.match(/^Score\s*[:]?\s*([\d.]+)/i);
-        const scoreMatch3 = line.match(/Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i);
-        const finalScoreMatch = scoreMatch || scoreMatch2 || scoreMatch3;
-        
-        if (finalScoreMatch && currentImage && currentSection !== 'overall') {
-          const scoreValue = finalScoreMatch[1];
-          currentImage.score = scoreValue + '/10';
-          currentSection = 'score';
-          console.log(`Image ${currentImage.imageNumber} Score: ${currentImage.score}`);
-          continue;
-        }
-        
-        // Check for Overall Listing Score (multiple patterns)
-        const overallMatch = line.match(/^Overall\s+Listing\s+Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i);
-        const overallMatch2 = line.match(/^Overall\s+Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i);
-        const overallMatch3 = line.match(/Overall\s+Score\s*[:]?\s*([\d.]+)/i);
-        const overallFinal = overallMatch || overallMatch2 || overallMatch3;
-        
-        if (overallFinal) {
-          results.overallScore = overallFinal[1] + '/10';
-          currentSection = 'overall';
-          console.log(`Overall Score: ${results.overallScore}`);
-          continue;
-        }
-        
-        // Check for Reasons section (multiple patterns)
-        const reasonsMatch1 = line.match(/^Reasons for the deducted marks\s*[:]?/i);
-        const reasonsMatch2 = line.match(/^Reasons for deducted marks\s*[:]?/i);
-        const reasonsMatch3 = line.match(/^Reasons\s*[:]?/i);
-        const reasonsMatch4 = line.match(/^Why marks were deducted\s*[:]?/i);
-        const reasonsMatch5 = line.match(/^Deducted marks reasons\s*[:]?/i);
-        const reasonsMatch = reasonsMatch1 || reasonsMatch2 || reasonsMatch3 || reasonsMatch4 || reasonsMatch5;
-        
-        if (reasonsMatch && currentImage) {
-          currentSection = 'reasons';
-          collectingReasons = true;
-          foundAnyReasons = true;
-          console.log(`Image ${currentImage.imageNumber} - Collecting reasons...`);
-          continue;
-        }
-        
-        // Collect reasons - more flexible bullet point detection
-        if (collectingReasons && currentImage && currentSection === 'reasons') {
-          // Check for bullet points with various markers
-          const bulletMatch = line.match(/^[-•*]\s*(.+)/);
-          const numberedMatch = line.match(/^\d+[.)]\s*(.+)/);
-          const dashMatch = line.match(/^-\s*(.+)/);
-          const textMatch = line.match(/^[•∙]\s*(.+)/);
-          
-          let reasonText = null;
-          if (bulletMatch) {
-            reasonText = bulletMatch[1].trim();
-          } else if (numberedMatch) {
-            reasonText = numberedMatch[1].trim();
-          } else if (dashMatch) {
-            reasonText = dashMatch[1].trim();
-          } else if (textMatch) {
-            reasonText = textMatch[1].trim();
-          }
-          
-          if (reasonText && reasonText.length > 0) {
-            currentImage.reasonsForDeductedMarks.push(reasonText);
-            console.log(`    • ${reasonText}`);
-            continue;
-          }
-          
-          // If we hit a line that starts with a capital letter and has a colon,
-          // it might be a new section header - stop collecting reasons
-          if (line.match(/^[A-Z][a-z]+:/) && !line.match(/^Score:/) && !line.match(/^Reasons/)) {
-            collectingReasons = false;
-            currentSection = 'other';
-            continue;
-          }
-          
-          // If we hit a line that starts with "IMAGE" or "Overall", stop collecting
-          if (line.match(/^IMAGE/i) || line.match(/^Overall/i)) {
-            collectingReasons = false;
-            currentSection = 'other';
-            continue;
-          }
-          
-          // If line is long and doesn't look like a header, it might be a reason
-          if (line.length > 20 && !line.includes(':')) {
-            // Check if it's a standalone sentence that could be a reason
-            if (!line.match(/^[A-Z][a-z]+:/) && !line.match(/^\d+\./)) {
-              // This might be a reason that wasn't properly bulleted
-              currentImage.reasonsForDeductedMarks.push(line);
-              console.log(`    • (unbulleted) ${line}`);
-              continue;
-            }
-          }
-        }
-      }
-      
-      // Don't forget to save the last image
-      if (currentImage && currentImage.imageNumber) {
-        // Only add if not already added
-        const exists = results.detailedAnalysis.some(img => img.imageNumber === currentImage.imageNumber);
-        if (!exists) {
+      if (imageMatch) {
+        // If we were already tracking an image, save it before starting the next one
+        if (currentImage) {
           results.detailedAnalysis.push(currentImage);
         }
+        imageNumber = parseInt(imageMatch[1]);
+        currentImage = {
+          imageNumber: imageNumber,
+          score: 'N/A',
+          reasonsForDeductedMarks: []
+        };
+        currentSection = 'image_header';
+        collectingReasons = false;
+        continue;
       }
       
-      // Build individual scores from detailed analysis
-      results.individualScores = results.detailedAnalysis.map(img => ({
-        image: img.imageNumber,
-        score: img.score
-      }));
+      // 2. Match individual image scores
+      const scoreMatch = line.match(/^Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i) || 
+                         line.match(/^Score\s*[:]?\s*([\d.]+)/i) || 
+                         line.match(/Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i);
       
-      console.log('Parsed analysis results:', {
-        images: results.detailedAnalysis.length,
-        overallScore: results.overallScore,
-        hasReasons: results.detailedAnalysis.some(img => img.reasonsForDeductedMarks.length > 0)
-      });
+      if (scoreMatch && currentImage && currentSection !== 'overall') {
+        currentImage.score = scoreMatch[1] + '/10';
+        currentSection = 'score';
+        continue;
+      }
       
-      // Log each image's data for debugging
-      results.detailedAnalysis.forEach(img => {
-        console.log(`  Image ${img.imageNumber}: Score=${img.score}, Reasons=${img.reasonsForDeductedMarks.length}`);
-        if (img.reasonsForDeductedMarks.length > 0) {
-          img.reasonsForDeductedMarks.forEach(r => console.log(`    • ${r}`));
-        } else {
-          console.log(`No reasons found for Image ${img.imageNumber}`);
+      // 3. Match the global overall score line
+      const overallMatch = line.match(/^Overall\s+Listing\s+Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i) || 
+                           line.match(/^Overall\s+Score\s*[:]?\s*([\d.]+)\s*\/\s*10/i) || 
+                           line.match(/Overall\s+Score\s*[:]?\s*([\d.]+)/i);
+      
+      if (overallMatch) {
+        results.overallScore = overallMatch[1] + '/10';
+        currentSection = 'overall';
+        continue;
+      }
+      
+      // 4. Match the deductions header
+      const reasonsMatch = line.match(/^Reasons for the deducted marks\s*[:]?/i) || 
+                           line.match(/^Reasons for deducted marks\s*[:]?/i) || 
+                           line.match(/^Reasons\s*[:]?/i) || 
+                           line.match(/^Why marks were deducted\s*[:]?/i);
+      
+      if (reasonsMatch && currentImage) {
+        currentSection = 'reasons';
+        collectingReasons = true;
+        continue;
+      }
+      
+      // 5. Collect bullet points under the deductions section
+      if (collectingReasons && currentImage && currentSection === 'reasons') {
+        const bulletMatch = line.match(/^[-•*]\s*(.+)/) || 
+                            line.match(/^\d+[.)]\s*(.+)/) || 
+                            line.match(/^-\s*(.+)/);
+        
+        if (bulletMatch) {
+          currentImage.reasonsForDeductedMarks.push(bulletMatch[1].trim());
+        } else if (!line.match(/^[A-Z]/)) { 
+          // If line continues without a new bullet, append it to the previous bullet item
+          if (currentImage.reasonsForDeductedMarks.length > 0) {
+            const lastIdx = currentImage.reasonsForDeductedMarks.length - 1;
+            currentImage.reasonsForDeductedMarks[lastIdx] += ' ' + line;
+          } else {
+            currentImage.reasonsForDeductedMarks.push(line);
+          }
         }
-      });
-      
-      // If no reasons were found, try a different parsing approach
-      if (results.detailedAnalysis.every(img => img.reasonsForDeductedMarks.length === 0)) {
-        console.log('No reasons found with standard parsing. Trying alternate parsing...');
-        return this.parseAnalysisResponseAlternate(response, originalImages);
       }
-      
-      return results;
-      
-    } catch (error) {
-      console.error('Error parsing analysis:', error);
-      return this.getFallbackAnalysis(originalImages);
     }
+    
+    // 👇 CRITICAL FIX: Save the last image block after the loop finishes exiting
+    if (currentImage) {
+      results.detailedAnalysis.push(currentImage);
+    }
+    
+    return results;
+  } catch (error) {
+    console.error('Error parsing response:', error);
+    return this.getFallbackAnalysis(originalImages);
   }
+}
 
   parseAnalysisResponseAlternate(response, originalImages) {
     console.log('🔄 Using alternate parsing method...');
