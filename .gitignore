@@ -1,0 +1,6 @@
+node_modules/
+playwright-profile1/
+temp_images/
+generated_images/
+.env
+*.log

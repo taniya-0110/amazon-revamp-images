@@ -1,0 +1,7 @@
+# Add these lines to block runtime state files from crashing/restarting your node process:
+analysis_results.json
+status.json
+continue_signal.json
+temp_images/*
+generated_images/*
+playwright-profile1/*
