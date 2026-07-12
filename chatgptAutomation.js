@@ -117,7 +117,7 @@ class ChatGPTAutomation {
       try {
         const liveCookies = await this.fetchLiveCookies();
         if (!liveCookies || liveCookies.length === 0) {
-          throw new Error('ChatGPT session cookies are missing. Set CHATGPT_SESSION_TOKEN (or its chunks) before running analysis.');
+          throw new Error('ChatGPT session cookies are missing. Set CHATGPT_COOKIES to a JSON browser-cookie export before running analysis.');
         }
         if (liveCookies && liveCookies.length > 0) {
           console.log(`?? Injecting ${liveCookies.length} session cookies into context...`);
@@ -140,80 +140,15 @@ class ChatGPTAutomation {
       this.updateStatus('navigating', { message: 'Opening ChatGPT...' });
       await page.goto(this.chatgptUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-      // Handle login / Verification of UI layout
-      console.log('?? Checking login status...');
+      // Cookie-only authentication check. Never attempt a credential login.
+      console.log('Checking ChatGPT session...');
       this.updateStatus('checking_login', { message: 'Checking login status...' });
       
       await page.waitForTimeout(3000);
       
-      const loginButtonSelector = 'button[data-testid="login-button"]';
-      const loginButton = await page.locator(loginButtonSelector).first();
-      const loginButtonExists = await loginButton.count() > 0;
-      
-      // Multi-selector sequence ensures we capture different versions of the textarea layout
-      const textareaSelector = 'textarea[id="prompt-textarea"], #prompt-textarea, [contenteditable="true"]';
-      
-      if (loginButtonExists && await loginButton.isVisible({ timeout: 2000 })) {
-        throw new Error('ChatGPT session cookies are expired or invalid. Refresh CHATGPT_SESSION_TOKEN and try again. Manual login is disabled.');
-        console.log('?? Login button found. Automating login...');
-        this.updateStatus('logging_in', { message: 'Logging in to ChatGPT...' });
-        
-        await loginButton.click();
-        console.log('? Login button clicked');
-        await page.waitForTimeout(3000);
-
-        let credentialLoginStarted = await this.handleDirectChatGPTLogin(page);
-        
-        if (!credentialLoginStarted) {
-          const googleButtonSelectors = [
-            'button:has-text("Continue with Google")',
-            'button:has-text("Google")',
-            'button[data-provider="google"]',
-            'button:has(svg[viewBox*="google"])'
-          ];
-          
-          let googleButtonFound = false;
-          for (const selector of googleButtonSelectors) {
-            try {
-              const btn = await page.locator(selector).first();
-              if (await btn.count() > 0 && await btn.isVisible({ timeout: 1000 })) {
-                console.log('?? Clicking "Continue with Google"...');
-                await btn.click();
-                googleButtonFound = true;
-                await page.waitForTimeout(3000);
-                break;
-              }
-            } catch (e) {}
-          }
-          
-          if (googleButtonFound) {
-            await this.handleGoogleLoginPrecise(page);
-          } else {
-            const emailInput = await page.locator('input[name="identifier"], input#identifierId').first();
-            if (await emailInput.count() > 0 && await emailInput.isVisible({ timeout: 2000 })) {
-              console.log('?? Already on Google login page. Filling credentials...');
-              await this.handleGoogleLoginPrecise(page);
-            }
-          }
-        }
-        
-        console.log('? Waiting for login to complete...');
-        await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 60000 });
-        await this.ensureChatGPTReady(page, textareaSelector);
-        console.log('? Login successful!');
-        
-      } else {
-        console.log('? Already logged in or no login needed');
-        try {
-          await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 10000 });
-          await this.ensureChatGPTReady(page, textareaSelector);
-          console.log('? Chat interface ready');
-        } catch (error) {
-          console.log('?? Could not find chat interface, may need manual intervention');
-          await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 30000 });
-          await this.ensureChatGPTReady(page, textareaSelector);
-        }
-      }
+      const textareaSelector = this.getComposerSelector();
+      await this.ensureChatGPTReady(page, textareaSelector);
+      console.log('ChatGPT session is ready.');
 
       await page.waitForTimeout(2000);
       await page.screenshot({ path: path.join(__dirname, 'generated_images', 'render_debug.png'), fullPage: true });
@@ -237,11 +172,7 @@ class ChatGPTAutomation {
       downloadedImages = await this.downloadImages(images);
       
       if (downloadedImages.length === 0) {
-        console.log('?? No images downloaded');
-        results = this.getFallbackResults(images);
-        this.updateStatus('completed', { results: results });
-        await this.saveResultsAndKeepOpen(results, page, context);
-        return results;
+        throw new Error('No listing images could be downloaded for ChatGPT analysis.');
       }
 
       console.log(`? Downloaded ${downloadedImages.length} images successfully`);
@@ -270,9 +201,6 @@ class ChatGPTAutomation {
       
       if (!promptSent) {
         throw new Error('ChatGPT did not accept the analysis prompt.');
-        console.log('?? Failed to send prompt automatically. Please send manually.');
-        this.updateStatus('waiting_manual', { message: 'Error!' });
-        await page.waitForTimeout(10000);
       }
       
       console.log('?? Analysis prompt sent!');
@@ -283,11 +211,7 @@ class ChatGPTAutomation {
       const analysisResponse = await this.waitForResponseWithContent(page, 300);
       
       if (!analysisResponse) {
-        console.log('?? No analysis response received');
-        results = this.getFallbackResults(images);
-        this.updateStatus('completed', { results: results });
-        await this.saveResultsAndKeepOpen(results, page, context);
-        return results;
+        throw new Error('ChatGPT did not return an analysis response.');
       }
 
       console.log('? Analysis response received!');
@@ -344,21 +268,15 @@ class ChatGPTAutomation {
         await page.screenshot({ path: 'error-screenshot.png' });
         console.log('?? Saved error screenshot');
       }
-      results = this.getFallbackResults(images);
-      
       this.updateStatus('error', {
         message: error.message,
         error: error.message
       });
-      
-      try {
-        await this.saveResultsAndKeepOpen(results, page, context);
-      } catch (e) {
-        console.log('?? Could not save results:', e.message);
-        if (context) await context.close();
-      }
-      
-      return results;
+      if (context) await context.close().catch(() => {});
+      this.activePage = null;
+      this.activeContext = null;
+      // Never present placeholder scores as a successful analysis.
+      throw error;
     }
   }
 
@@ -438,78 +356,31 @@ class ChatGPTAutomation {
       return false;
     }
 
-    throw new Error('ChatGPT session has expired. Refresh CHATGPT_SESSION_TOKEN and try again. Manual login is disabled.');
+    throw new Error('ChatGPT session has expired. Replace CHATGPT_COOKIES with a fresh browser-cookie export and try again.');
+  }
 
-    console.log('?? ChatGPT expired-session modal detected. Attempting recovery...');
-    this.updateStatus('logging_in', {
-      message: 'ChatGPT session expired. Reopening login/session...'
-    });
-
-    const modalButtonSelectors = [
-      'button:has-text("Log in")',
-      'button:has-text("Login")',
-      'button:has-text("Sign in")',
-      'button:has-text("Continue")',
-      'button:has-text("Refresh")',
-      'button:has-text("Reload")',
-      'a:has-text("Log in")',
-      'a:has-text("Sign in")',
-      'button[aria-label="Close"]'
-    ];
-
-    let clicked = false;
-    for (const selector of modalButtonSelectors) {
-      try {
-        const candidate = modal.locator(selector).first();
-        if (await candidate.count() > 0 && await candidate.isVisible({ timeout: 1000 })) {
-          console.log(`Clicking expired-session modal action: ${selector}`);
-          await candidate.click({ timeout: 5000 });
-          clicked = true;
-          break;
-        }
-      } catch (error) {
-        console.log(`Could not click modal action ${selector}: ${error.message}`);
-      }
-    }
-
-    if (!clicked) {
-      console.log('No modal action button found. Pressing Escape and reloading ChatGPT.');
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(1000);
-      if (await modal.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-      }
-    }
-
-    await page.waitForTimeout(3000);
-
-    const loginButton = page.locator('button[data-testid="login-button"], button:has-text("Log in"), button:has-text("Login")').first();
-    if (await loginButton.count() > 0 && await loginButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      console.log('Login button visible after expired-session recovery. Logging in again...');
-      await loginButton.click({ timeout: 10000 });
-      await page.waitForTimeout(3000);
-
-      const credentialLoginStarted = await this.handleDirectChatGPTLogin(page);
-      if (!credentialLoginStarted) {
-        await this.handleGoogleLoginPrecise(page).catch((error) => {
-          console.log('Google login recovery did not complete automatically:', error.message);
-        });
-      }
-    }
-
-    await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 60000 });
-    await page.waitForTimeout(1000);
-
-    if (await modal.isVisible({ timeout: 1000 }).catch(() => false)) {
-      throw new Error('ChatGPT session expired and could not be recovered automatically. Update the ChatGPT session token/cookies on Render, then try again.');
-    }
-
-    console.log('? Expired-session modal cleared.');
-    return true;
+  getComposerSelector() {
+    return [
+      'textarea[data-testid="prompt-textarea"]',
+      'textarea#prompt-textarea',
+      '[data-testid="prompt-textarea"][contenteditable="true"]',
+      '[contenteditable="true"][role="textbox"]'
+    ].join(', ');
   }
 
   async ensureChatGPTReady(page, textareaSelector = '#prompt-textarea') {
     await this.handleExpiredSessionModal(page, textareaSelector);
+
+    const loginSelectors = [
+      'button[data-testid="login-button"]',
+      'a[href*="auth/login"]',
+      'button:has-text("Log in")',
+      'button:has-text("Sign up")'
+    ].join(', ');
+    const loginVisible = await page.locator(loginSelectors).first().isVisible({ timeout: 1500 }).catch(() => false);
+    if (loginVisible || /auth\/login|auth0|sign-in/i.test(page.url())) {
+      throw new Error('ChatGPT did not accept the configured session cookies. Set CHATGPT_COOKIES to a fresh JSON browser-cookie export; manual login is disabled.');
+    }
 
     const blockingAlert = page.locator('span.fixed.inset-0.z-60 [role="alert"], [role="alert"].bg-red-500').first();
     if (await blockingAlert.count() > 0 && await blockingAlert.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -518,7 +389,11 @@ class ChatGPTAutomation {
     }
 
     await this.handleExpiredSessionModal(page, textareaSelector);
-    await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 30000 });
+    try {
+      await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 30000 });
+    } catch (error) {
+      throw new Error(`ChatGPT composer was not available after cookie authentication (${page.url()}). Refresh CHATGPT_COOKIES; manual login is disabled.`);
+    }
   }
 
   async sendPromptWithEnter(page, prompt) {
@@ -991,11 +866,6 @@ class ChatGPTAutomation {
 
       if (!genPromptSent) {
         throw new Error(`ChatGPT did not accept the generation prompt for Image ${imageNumber}.`);
-        console.log(`?? Failed to send generation prompt for Image ${imageNumber}. Please send manually.`);
-        this.updateStatus('waiting_manual', {
-          message: `Please send the generation prompt for Image ${imageNumber} manually.`
-        });
-        await page.waitForTimeout(5000);
       }
 
       console.log(`?? Generation prompt for Image ${imageNumber} sent!`);
@@ -1105,7 +975,7 @@ Meet the following Amazon listing image standards:
 * 4K ultra-high resolution
 * White background (compulsory only for main product image)
 * No images of customer reviews, five-star imagery, claims (for example, free shipping) or selling partner-specific information
-* No badges used on Amazon, or variations, modifications or anything confusingly similar to such badges. This includes, but is not limited to, “Amazon’s Choice”, “Premium Choice”, “Amazon Alexa”, “Works with Amazon Alexa”, “Best seller” or “Top seller”.
+* No badges used on Amazon, or variations, modifications or anything confusingly similar to such badges. This includes, but is not limited to, Â“AmazonÂ’s ChoiceÂ”, Â“Premium ChoiceÂ”, Â“Amazon AlexaÂ”, Â“Works with Amazon AlexaÂ”, Â“Best sellerÂ” or Â“Top sellerÂ”.
 * Prohibited: Text, logos, graphics or watermarks over the top of a product or in the background
 Do not change:
 * Product name
@@ -1453,7 +1323,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
         const reasonsSection = block.match(/(?:reasons?\s*(?:for\s*)?(?:the\s*)?(?:deducted\s*)?marks?|why\s*(?:marks?\s*)?were\s*deducted|deductions?)\s*[:=-]?\s*([\s\S]*?)(?=\n\s*(?:overall|total|final)\s+(?:listing\s+)?score\b|$)/i);
         const reasons = (reasonsSection ? reasonsSection[1] : '')
           .split(/\n+/)
-          .map((line) => line.replace(/^\s*(?:[-*•]+|\d+[.)])\s*/, '').replace(/^\s*(?:reason|deduction)\s*\d*\s*[:=-]\s*/i, '').replace(/\*\*/g, '').trim())
+          .map((line) => line.replace(/^\s*(?:[-*Â•]+|\d+[.)])\s*/, '').replace(/^\s*(?:reason|deduction)\s*\d*\s*[:=-]\s*/i, '').replace(/\*\*/g, '').trim())
           .filter((line) => line && !/^(?:score|overall|total|final)\b/i.test(line));
 
         results.detailedAnalysis.push({
@@ -1562,7 +1432,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       
       // 5. Collect bullet points under the deductions section
       if (collectingReasons && currentImage && currentSection === 'reasons') {
-        const bulletMatch = line.match(/^[-•*]\s*(.+)/) || 
+        const bulletMatch = line.match(/^[-Â•*]\s*(.+)/) || 
                             line.match(/^\d+[.)]\s*(.+)/) || 
                             line.match(/^-\s*(.+)/);
         
@@ -1632,7 +1502,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
           const reasonsText = reasonsMatch[1].trim();
           // Split by bullet points, new lines, or numbers
           const reasonLines = reasonsText
-            .split(/[-•*]\s*|\d+[.)]\s*|\n+/)
+            .split(/[-Â•*]\s*|\d+[.)]\s*|\n+/)
             .map(r => r.trim())
             .filter(r => r.length > 5 && !r.match(/^[A-Z][a-z]+:/));
           
@@ -1712,6 +1582,31 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
   async fetchLiveCookies() {
     try {
+      // Preferred form: the complete cookie array exported from an authenticated
+      // chatgpt.com browser session. This preserves every cookie ChatGPT needs.
+      const exportedCookies = process.env.CHATGPT_COOKIES;
+      if (exportedCookies) {
+        const parsed = JSON.parse(exportedCookies);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          throw new Error('CHATGPT_COOKIES must be a non-empty JSON array.');
+        }
+        return parsed
+          .filter((cookie) => cookie && cookie.name && cookie.value)
+          .map((cookie) => {
+            const normalized = { ...cookie };
+            delete normalized.hostOnly;
+            delete normalized.session;
+            delete normalized.storeId;
+            delete normalized.id;
+            if (!normalized.url && !normalized.domain) normalized.url = 'https://chatgpt.com';
+            if (normalized.expirationDate && !normalized.expires) {
+              normalized.expires = Math.floor(normalized.expirationDate);
+            }
+            delete normalized.expirationDate;
+            return normalized;
+          });
+      }
+
       const cookies = [];
       
       // 1. Check for chunked format (.0, .1) in environment variables
