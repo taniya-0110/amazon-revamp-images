@@ -117,11 +117,15 @@ class ChatGPTAutomation {
       try {
         const liveCookies = await this.fetchLiveCookies();
         if (!liveCookies || liveCookies.length === 0) {
-          throw new Error('ChatGPT session cookies are missing. Set CHATGPT_COOKIES to a JSON browser-cookie export before running analysis.');
+          throw new Error('ChatGPT session tokens are missing. Configure CHATGPT_SESSION_TOKEN, or both CHATGPT_SESSION_TOKEN_0 and CHATGPT_SESSION_TOKEN_1, in Render.');
         }
         if (liveCookies && liveCookies.length > 0) {
           console.log(`?? Injecting ${liveCookies.length} session cookies into context...`);
           await context.addCookies(liveCookies);
+          const injectedNames = (await context.cookies('https://chatgpt.com')).map((cookie) => cookie.name);
+          if (!injectedNames.some((name) => name.startsWith('__Secure-next-auth.session-token'))) {
+            throw new Error('Render did not retain the ChatGPT session-token cookie. Check that the token values have no quotes or line breaks.');
+          }
           console.log('? Session cookies successfully attached.');
         } else {
           console.log('?? No local session cookies found; proceeding with existing state.');
@@ -356,7 +360,7 @@ class ChatGPTAutomation {
       return false;
     }
 
-    throw new Error('ChatGPT session has expired. Replace CHATGPT_COOKIES with a fresh browser-cookie export and try again.');
+    throw new Error('ChatGPT session has expired. Replace the Render CHATGPT_SESSION_TOKEN value(s) and try again.');
   }
 
   getComposerSelector() {
@@ -379,7 +383,7 @@ class ChatGPTAutomation {
     ].join(', ');
     const loginVisible = await page.locator(loginSelectors).first().isVisible({ timeout: 1500 }).catch(() => false);
     if (loginVisible || /auth\/login|auth0|sign-in/i.test(page.url())) {
-      throw new Error('ChatGPT did not accept the configured session cookies. Set CHATGPT_COOKIES to a fresh JSON browser-cookie export; manual login is disabled.');
+      throw new Error('ChatGPT did not accept the configured session tokens. Refresh CHATGPT_SESSION_TOKEN (or _0 and _1) in Render; manual login is disabled.');
     }
 
     const blockingAlert = page.locator('span.fixed.inset-0.z-60 [role="alert"], [role="alert"].bg-red-500').first();
@@ -392,7 +396,7 @@ class ChatGPTAutomation {
     try {
       await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 30000 });
     } catch (error) {
-      throw new Error(`ChatGPT composer was not available after cookie authentication (${page.url()}). Refresh CHATGPT_COOKIES; manual login is disabled.`);
+      throw new Error(`ChatGPT composer was not available after session-token authentication (${page.url()}). Refresh CHATGPT_SESSION_TOKEN (or _0 and _1) in Render; manual login is disabled.`);
     }
   }
 
@@ -1614,6 +1618,9 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       const chunk1 = process.env.CHATGPT_SESSION_TOKEN_1;
 
       if (chunk0) {
+        if (!chunk1) {
+          throw new Error('CHATGPT_SESSION_TOKEN_1 is missing. Configure both chunk variables, or configure the combined CHATGPT_SESSION_TOKEN.');
+        }
         console.log('?? Detected chunked session tokens. Building multi-part cookie array...');
         
         cookies.push({
@@ -1625,16 +1632,14 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
           sameSite: 'Lax'
         });
 
-        if (chunk1) {
-          cookies.push({
-            name: '__Secure-next-auth.session-token.1',
-            value: chunk1.replace(/["'\r\n]/g, '').trim(),
-            url: 'https://chatgpt.com',
-            secure: true,
-            httpOnly: true,
-            sameSite: 'Lax'
-          });
-        }
+        cookies.push({
+          name: '__Secure-next-auth.session-token.1',
+          value: chunk1.replace(/["'\r\n]/g, '').trim(),
+          url: 'https://chatgpt.com',
+          secure: true,
+          httpOnly: true,
+          sameSite: 'Lax'
+        });
       } 
       // 2. Fallback to single token if it wasn't split yet
       else {
