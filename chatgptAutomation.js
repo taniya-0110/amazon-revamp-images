@@ -87,24 +87,23 @@ class ChatGPTAutomation {
         console.warn('?? [AUTOMATION] Non-fatal warning clearing profile folder:', profileErr.message);
       }
       
-      // 1. Launch the profile configuration safely
-      context = await chromium.launchPersistentContext(
-        this.profileFolder,
-        {
-          headless: process.env.RENDER ? true : false,
-          viewport: { width: 1280, height: 800 }, 
-          userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          args: [
-            '--disable-blink-features=AutomationControlled',
-            '--no-first-run',
-            '--window-size=1280,800',
+      // 1. Launch a clean, non-persistent browser instance
+      this.browser = await chromium.launch({
+        headless: process.env.RENDER ? true : false,
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--no-first-run',
           ...(process.env.RENDER 
             ? ['--no-sandbox', '--disable-setuid-sandbox'] 
-            : ['--window-position=-2000,-2000'])
-          ],
-          ...(process.env.RENDER ? {} : { channel: 'chrome' })
-        }
-      );
+            : [])
+        ]
+      });
+
+      // Create an ephemeral, non-persistent context
+      context = await this.browser.newContext({
+        viewport: { width: 1280, height: 800 },
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      });
       
       try {
         console.log('?? Clearing stale profile cookies to prevent session mixups...');
@@ -1624,18 +1623,10 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
         console.log('?? Detected chunked session tokens. Building multi-part cookie array...');
         
         cookies.push({
-          name: '__Secure-next-auth.session-token.0',
-          value: chunk0.replace(/["'\r\n]/g, '').trim(),
+          name: '__Secure-next-auth.session-token',
+          value: cleanToken,
           url: 'https://chatgpt.com',
-          secure: true,
-          httpOnly: true,
-          sameSite: 'Lax'
-        });
-
-        cookies.push({
-          name: '__Secure-next-auth.session-token.1',
-          value: chunk1.replace(/["'\r\n]/g, '').trim(),
-          url: 'https://chatgpt.com',
+          domain: '.chatgpt.com', // Explicitly share token authorization context across routes
           secure: true,
           httpOnly: true,
           sameSite: 'Lax'
@@ -1690,35 +1681,30 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       return [];
     }
   }
-  // ? ADD THIS NEW METHOD HERE
   async cleanup() {
-    console.log("?? [AUTOMATION] Running internal cleanup routine...");
+    console.log("🧹 [AUTOMATION] Running internal cleanup routine...");
     
     this.generationInProgress = false;
 
-    // 1. Force close the active page if it's open
     if (this.activePage) {
-      try {
-        await this.activePage.close();
-        console.log("?? [AUTOMATION] Active browser page closed.");
-      } catch (e) {
-        console.log("?? [AUTOMATION] Page already closed:", e.message);
-      }
+      try { await this.activePage.close(); } catch (e) {}
       this.activePage = null;
     }
 
-    // 2. Force close the persistent context (This kills the headless Chrome process entirely!)
     if (this.activeContext) {
-      try {
-        await this.activeContext.close();
-        console.log("?? [AUTOMATION] Persistent browser process terminated cleanly.");
-      } catch (e) {
-        console.log("?? [AUTOMATION] Browser process already stopped:", e.message);
-      }
+      try { await this.activeContext.close(); } catch (e) {}
       this.activeContext = null;
     }
     
-    console.log("?? [AUTOMATION] Internal cleanup complete.");
+    if (this.browser) {
+      try { 
+        await this.browser.close(); 
+        console.log("🧹 [AUTOMATION] Standard browser terminated.");
+      } catch (e) {}
+      this.browser = null;
+    }
+    
+    console.log("🧹 [AUTOMATION] Internal cleanup complete.");
   }
 }
 

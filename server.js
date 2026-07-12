@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
-const { exec } = require('child_process'); // <-- 1. ADDED FOR FILE EXECUTION
+const { exec } = require('child_process');
 
 const ChatGPTAutomation = require('./chatgptAutomation');
 
@@ -35,9 +35,9 @@ dirs.forEach(dir => {
   }
 });
 
-// ==========================================
+// ==========================================================================
 // GLOBAL STATE - SHARED BETWEEN SERVER AND AUTOMATION
-// ==========================================
+// ==========================================================================
 let currentStatus = {
   status: 'idle',
   message: 'Ready',
@@ -96,7 +96,6 @@ function resetSessionState(type = 'reset', options = {}) {
     clearDirectory(path.join(__dirname, 'temp_images'));
     clearDirectory(path.join(__dirname, 'generated_images'));
     
-    // ✨ FIX: Safely attempt to wipe out the persistent profile folder during state resets
     try {
       const profilePath = path.join(__dirname, 'playwright-profile1');
       if (fs.existsSync(profilePath)) {
@@ -159,9 +158,9 @@ function saveFetchedImages(images) {
   });
 }
 
-// ==========================================
+// ==========================================================================
 // STATUS & DISK PERSISTENCE MANAGEMENT
-// ==========================================
+// ==========================================================================
 function saveResultsToDisk() {
   try {
     const resultsFile = path.join(__dirname, 'analysis_results.json');
@@ -188,16 +187,13 @@ function hydrateResultsFromDisk() {
     const saved = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
     const savedAnalysis = saved.analysis || saved.results?.analysis || null;
     const savedGeneratedImages = saved.generatedImages || saved.results?.generatedImages || [];
-    const savedCurrentImage = saved.currentImage || saved.results?.currentImage || 0;
 
     if (!currentResults.analysis && savedAnalysis) {
       currentResults.analysis = savedAnalysis;
       currentResults.rawResponse = saved.fullResponse || saved.rawResponse || saved.results?.rawResponse || currentResults.rawResponse;
     }
 
-    // Only update generated images if we have new ones
     if (Array.isArray(savedGeneratedImages) && savedGeneratedImages.length > 0) {
-      // Merge with existing images to avoid duplicates
       const existingNumbers = new Set(currentResults.generatedImages.map(img => img && img.imageNumber));
       for (const img of savedGeneratedImages) {
         const normalized = normalizeGeneratedImage(img);
@@ -218,14 +214,11 @@ function hydrateResultsFromDisk() {
 }
 
 function updateStatus(status, message, data = {}) {
-  // FIXED: Allow fresh analysis to overwrite state instead of being locked out by old cached instances
   if (data.analysis) {
     currentResults.analysis = data.analysis;
   }
 
-  // CRITICAL FIX: Always update generatedImages from data
   if (Array.isArray(data.generatedImages)) {
-    // Merge with existing to avoid duplicates
     const existingNumbers = new Set(currentResults.generatedImages.map(img => img && img.imageNumber));
     for (const img of data.generatedImages) {
       const normalized = normalizeGeneratedImage(img);
@@ -253,7 +246,6 @@ function updateStatus(status, message, data = {}) {
   };
   console.log(`[STATUS] ${status}: ${message}`);
   
-  // Sync state modifications onto disk immediately so components polling get real-time info
   saveResultsToDisk();
 }
 
@@ -267,7 +259,6 @@ function addGeneratedImage(imageData) {
   imageData = normalizeGeneratedImage(imageData);
   if (!imageData) return;
 
-  // Check if this image number already exists
   const existingIndex = currentResults.generatedImages.findIndex(
     img => img.imageNumber === imageData.imageNumber
   );
@@ -281,6 +272,25 @@ function addGeneratedImage(imageData) {
   currentResults.currentImage = imageData.imageNumber;
   console.log(`[RESULTS] Generated image ${imageData.imageNumber} stored. Total: ${currentResults.generatedImages.length}`);
   saveResultsToDisk();
+}
+
+// Helper function to return unified, flat data structures
+function getUnifiedResultsPayload() {
+  hydrateResultsFromDisk();
+  currentResults.currentImage = getGeneratedCount();
+  
+  return {
+    success: true,
+    status: currentStatus.status,
+    message: currentStatus.message,
+    analysis: currentResults.analysis,
+    generatedImages: currentResults.generatedImages,
+    totalImages: currentResults.totalImages,
+    currentImage: currentResults.currentImage,
+    generatedCount: getGeneratedCount(),
+    rawResponse: currentResults.rawResponse,
+    results: currentResults
+  };
 }
 
 function normalizeGeneratedImage(imageData) {
@@ -299,25 +309,22 @@ function normalizeGeneratedImage(imageData) {
 }
 
 function getGeneratedCount() {
-  // Only count images that have actual file paths or URLs
   return currentResults.generatedImages.filter(img => 
     img.filePath || img.imageUrl || img.url
   ).length;
 }
 
 // ==========================================================================
-// ✨ GLOBAL SESSION CLEANUP UTILITY
+// GLOBAL SESSION CLEANUP UTILITY
 // ==========================================================================
 async function forceCleanupOldSession() {
   console.log("🧹 [CLEANUP] Request received. Cleaning up zombie browsers and resetting state...");
   
-  // 1. Force resolve any stuck continue hooks so the Node event loop doesn't hang
   if (continueResolve) {
     try { continueResolve({ continue: false, abort: true }); } catch(e) {}
     continueResolve = null;
   }
   
-  // 2. Kill the browser managed by your automation script
   if (automationInstance) {
     try {
       if (typeof automationInstance.cleanup === 'function') {
@@ -325,7 +332,6 @@ async function forceCleanupOldSession() {
       } else if (typeof automationInstance.close === 'function') {
         await automationInstance.close();
       } else if (automationInstance.browser) {
-        // Fallback if the browser reference is attached directly to the module export
         await automationInstance.browser.close();
         automationInstance.browser = null;
       }
@@ -335,23 +341,21 @@ async function forceCleanupOldSession() {
     }
   }
   
-  // 3. Reset running locks
   isRunning = false;
   automationInstance = null;
 }
 
-
-// ==========================================
+// ==========================================================================
 // API ENDPOINTS
-// ==========================================
+// ==========================================================================
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health'], (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Get current status
-app.get('/api/status', (req, res) => {
+app.get(['/api/status', '/status'], (req, res) => {
   hydrateResultsFromDisk();
 
   res.json({
@@ -362,37 +366,15 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Helper function to return unified, flat data structures
-function getUnifiedResultsPayload() {
-  hydrateResultsFromDisk();
-  currentResults.currentImage = getGeneratedCount();
-  
-  return {
-    success: true,
-    status: currentStatus.status,
-    message: currentStatus.message,
-    analysis: currentResults.analysis,
-    generatedImages: currentResults.generatedImages,
-    totalImages: currentResults.totalImages,
-    currentImage: currentResults.currentImage,
-    generatedCount: getGeneratedCount(),
-    rawResponse: currentResults.rawResponse,
-    results: currentResults // Backwards compatibility for nested parsers
-  };
-}
-
-// Unified Endpoint: Handlers for BOTH prefixed and non-prefixed paths
+// Unified Results Endpoint
 app.get(['/api/analysis-results', '/analysis-results', '/api/results', '/results'], (req, res) => {
   const payload = getUnifiedResultsPayload();
   res.json(payload);
 });
 
-// 🔄 MODIFIED: TRIGGER ENDPOINT NOW WIPES OUT PREVIOUS BROWSER & STALE FILES ON REFRESH
-app.post('/api/run-trigger', async (req, res) => {
-  // Clear any dangling browser from a previous extension window lifecycle
+// 🔄 UPGRADED: RUN-TRIGGER (Handles reloads smoothly across paths)
+app.post(['/api/run-trigger', '/run-trigger'], async (req, res) => {
   await forceCleanupOldSession();
-
-  // Reset all old data on extension load/reload so the plugin never displays stale output.
   resetSessionState('extension_startup', { clearImages: true });
 
   const scriptPath = process.env.MY_PLUGIN_SCRIPT;
@@ -427,7 +409,7 @@ app.post('/api/run-trigger', async (req, res) => {
 });
 
 // Store fetched Seller Central images in the temp folder immediately.
-app.post('/api/store-images', (req, res) => {
+app.post(['/api/store-images', '/store-images'], (req, res) => {
   try {
     const { images } = req.body;
 
@@ -477,7 +459,7 @@ app.post('/api/store-images', (req, res) => {
 });
 
 // Generate one image at a time after analysis is complete.
-app.post('/api/continue', async (req, res) => {
+app.post(['/api/continue', '/continue'], async (req, res) => {
   console.log('[CONTINUE] Received generate-next request from plugin');
 
   if (!automationInstance || !currentResults.analysis) {
@@ -506,8 +488,8 @@ app.post('/api/continue', async (req, res) => {
   }
 });
 
-// 🔄 MODIFIED: MAIN ANALYZE ENDPOINT NOW ENSURES DANGLING BROWSERS ARE CLEARED FIRST
-app.post('/api/analyze-images', async (req, res) => {
+// 🔄 UPGRADED: MAIN ANALYZE ENDPOINT
+app.post(['/api/analyze-images', '/analyze-images'], async (req, res) => {
   try {
     const { images } = req.body;
 
@@ -518,14 +500,16 @@ app.post('/api/analyze-images', async (req, res) => {
       });
     }
 
-    // Clean up any old, stuck browser session before spinning up a new execution
+    if (isRunning) {
+      return res.status(400).json({ success: false, error: "An analysis cycle is already active." });
+    }
+
     await forceCleanupOldSession();
 
     console.log(`[ANALYZE] Received ${images.length} images for analysis`);
     const storedImages = saveFetchedImages(images);
     clearDirectory(path.join(__dirname, 'generated_images'));
 
-    // Reset state
     currentResults = {
       analysis: null,
       generatedImages: [],
@@ -548,14 +532,12 @@ app.post('/api/analyze-images', async (req, res) => {
     currentStatus.data = {};
     updateStatus('starting', 'Starting analysis...', { totalImages: storedImages.length });
 
-    // Start automation in background
     res.json({ 
       success: true, 
       message: 'Analysis started',
       totalImages: storedImages.length
     });
 
-    // Run automation
     try {
       const results = await runAutomation(storedImages);
       console.log('[AUTOMATION] Analysis completed successfully');
@@ -579,14 +561,12 @@ app.post('/api/analyze-images', async (req, res) => {
   }
 });
 
-// ==========================================
+// ==========================================================================
 // AUTOMATION RUNNER
-// ==========================================
+// ==========================================================================
 async function runAutomation(images) {
-  // FIX 1: Correctly instantiate the class using the 'new' keyword
   automationInstance = new ChatGPTAutomation();
 
-  // Inject server state callbacks into the newly created automation instance
   automationInstance._serverSetAnalysis = function(analysis, rawResponse) {
     if (rawResponse) currentResults.rawResponse = rawResponse;
     setAnalysisResults(analysis);
@@ -614,30 +594,25 @@ async function runAutomation(images) {
     return new Promise((resolve) => {
       continueResolve = resolve;
 
-      // Also set up file-based watcher as backup
       const continueSignalFile = path.join(__dirname, 'continue_signal.json');
       fs.writeFileSync(continueSignalFile, JSON.stringify({ status: 'waiting' }));
 
-      // Timeout after 30 minutes
       setTimeout(() => {
         if (continueResolve) {
           continueResolve({ continue: false, timeout: true });
           continueResolve = null;
         }
-      }, 30 * 60 * 1000);
+      }, 30 * 60 * 1000); // 30-minute absolute timeout fallback
     });
   };
 
-  // FIX 2: Removed the restrictive try/finally cleanup block.
-  // We explicitly return the result here and let the browser stay open in the background 
-  // so your continuation endpoint (/api/continue) can interact with it seamlessly.
   const results = await automationInstance.analyzeWithChatGPT(images);
   return results;
 }
 
-// ==========================================
-// START SERVER (3. FIXED DUPLICATE LISTENERS)
-// ==========================================
+// ==========================================================================
+// START SERVER
+// ==========================================================================
 resetSessionState('server_startup', { clearImages: true });
 
 app.listen(PORT, "0.0.0.0", () => {
@@ -645,16 +620,15 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Amazon Image Analyzer Backend running on Port: ${PORT}`);
   console.log(`🌍 Base URL: ${BACKEND_URL}`);
   console.log(`=============================================================`);
-  console.log(`API Endpoints:`);
+  console.log(`API Endpoints Available (Array Mapped):`);
   console.log(`   GET  /api/health           - Health check`);
   console.log(`   GET  /api/status           - Current status`);
   console.log(`   GET  /api/analysis-results - Analysis results`);
-  console.log(`   GET  /api/results          - All results`);
-  console.log(`   POST /api/run-trigger      - Reset stale session data and optionally run startup script`);
-  console.log(`   POST /api/store-images     - Store local workspace images`);
-  console.log(`   POST /api/analyze-images   - Start analysis execution`);
-  console.log(`   POST /api/continue         - Continue to next image`);
+  console.log(`   POST /api/run-trigger      - Clear stale environments & handle extension boot`);
+  console.log(`   POST /api/store-images     - Cache staging files`);
+  console.log(`   POST /api/analyze-images   - Launch browser processing automation`);
+  console.log(`   POST /api/continue         - Generate next asset chunk`);
   console.log(`-------------------------------------------------------------`);
-  console.log(`📁 Generated images served at: ${BACKEND_URL}/generated-images/`);
+  console.log(`📁 Asset Access Path: ${BACKEND_URL}/generated-images/`);
   console.log(`=============================================================\n`);
 });
