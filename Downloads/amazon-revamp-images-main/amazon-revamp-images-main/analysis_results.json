@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-07-09T05:56:16.830Z",
+  "type": "analysis_with_generation",
+  "analysis": {
+    "individualScores": [
+      {
+        "image": 1,
+        "score": "8.5/10"
+      },
+      {
+        "image": 2,
+        "score": "7.5/10"
+      },
+      {
+        "image": 3,
+        "score": "8/10"
+      }
+    ],
+    "overallScore": "N/A",
+    "detailedAnalysis": [
+      {
+        "imageNumber": 1,
+        "score": "8.5/10",
+        "reasonsForDeductedMarks": [
+          "Main image is cluttered with large heading (\"Writing Practice Books For Kids\") and \"Set of 4 Books\", reducing product prominence and not following Amazon best practices for a hero image.",
+          "Covers are overlapping at angles, making it harder to clearly identify each included book and reducing thumbnail readability."
+        ]
+      },
+      {
+        "imageNumber": 2,
+        "score": "7.5/10",
+        "reasonsForDeductedMarks": [
+          "Text-heavy layout with long sentences and multiple font styles reduces scanability on mobile devices.",
+          "Large amount of unused dark space and weak visual hierarchy make the benefits feel disconnected from the individual books."
+        ]
+      },
+      {
+        "imageNumber": 3,
+        "score": "8/10",
+        "reasonsForDeductedMarks": [
+          "The spread image is attractive but does not clearly demonstrate all \"12 key pre-writing strokes\" promised in the headline.",
+          "Vertical side text (\"PATTERN TRACING\") and relatively small headline reduce readability, especially in Amazon mobile view."
+        ]
+      }
+    ],
+    "rawResponse": "IMAGE 1\nScore: 8.5/10\nReasons for the deducted marks:\n\n\nMain image is cluttered with large heading (\"Writing Practice Books For Kids\") and \"Set of 4 Books\", reducing product prominence and not following Amazon best practices for a hero image.\n\n\nCovers are overlapping at angles, making it harder to clearly identify each included book and reducing thumbnail readability.\n\n\nIMAGE 2\nScore: 7.5/10\nReasons for the deducted marks:\n\n\nText-heavy layout with long sentences and multiple font styles reduces scanability on mobile devices.\n\n\nLarge amount of unused dark space and weak visual hierarchy make the benefits feel disconnected from the individual books.\n\n\nIMAGE 3\nScore: 8/10\nReasons for the deducted marks:\n\n\nThe spread image is attractive but does not clearly demonstrate all \"12 key pre-writing strokes\" promised in the headline.\n\n\nVertical side text (\"PATTERN TRACING\") and relatively small headline reduce readability, especially in Amazon mobile view.\n\n"
+  },
+  "generatedImages": [
+    {
+      "imageNumber": 1,
+      "description": "IMAGE 1\nScore: 8.5/10\nReasons for the deducted marks:\n\n\nMain image is cluttered with large heading (\"Writing Practice Books For Kids\") and \"Set of 4 Books\", reducing product prominence and not following Amazon best practices for a hero image.\n\n\nCovers are overlapping at angles, making it harder to clearly identify each included book and reducing thumbnail readability.\n\n\nIMAGE 2\nScore: 7.5/10\nReasons for the deducted marks:\n\n\nText-heavy layout with long sentences and multiple font styles reduces scanability on mobile devices.\n\n\nLarge amount of unused dark space and weak visual hierarchy make the benefits feel disconnected from the individual books.\n\n\nIMAGE 3\nScore: 8/10\nReasons for the deducted marks:\n\n\nThe spread image is attractive but does not clearly demonstrate all \"12 key pre-writing strokes\" promised in the headline.\n\n\nVertical side text (\"PATTERN TRACING\") and relatively small headline reduce readability, especially in Amazon mobile view.\n\n",
+      "imageUrl": "/generated-images/generated_image_01.jpg",
+      "filePath": "C:\\Users\\onl033\\Downloads\\Image AnalyzeR (2)\\Image Analyzer\\backend\\generated_images\\generated_image_01.jpg",
+      "timestamp": "2026-07-09T05:40:26.690Z"
+    },
+    {
+      "imageNumber": 2,
+      "description": "IMAGE 1\nScore: 8.5/10\nReasons for the deducted marks:\n\n\nMain image is cluttered with large heading (\"Writing Practice Books For Kids\") and \"Set of 4 Books\", reducing product prominence and not following Amazon best practices for a hero image.\n\n\nCovers are overlapping at angles, making it harder to clearly identify each included book and reducing thumbnail readability.\n\n\nIMAGE 2\nScore: 7.5/10\nReasons for the deducted marks:\n\n\nText-heavy layout with long sentences and multiple font styles reduces scanability on mobile devices.\n\n\nLarge amount of unused dark space and weak visual hierarchy make the benefits feel disconnected from the individual books.\n\n\nIMAGE 3\nScore: 8/10\nReasons for the deducted marks:\n\n\nThe spread image is attractive but does not clearly demonstrate all \"12 key pre-writing strokes\" promised in the headline.\n\n\nVertical side text (\"PATTERN TRACING\") and relatively small headline reduce readability, especially in Amazon mobile view.\n\n",
+      "imageUrl": "",
+      "filePath": "",
+      "timestamp": "2026-07-09T05:56:16.830Z"
+    }
+  ],
+  "currentImage": 2,
+  "status": "waiting_continue"
+}
