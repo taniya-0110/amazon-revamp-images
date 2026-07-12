@@ -1,4 +1,4 @@
-﻿const { chromium } = require('playwright');
+const { chromium } = require('playwright');
 // Add these lines at the absolute top of your file:
 const path = require('path');
 // This forces dotenv to load the file from the root directory relative to this script
@@ -11,8 +11,6 @@ const crypto = require('crypto');
 class ChatGPTAutomation {
   constructor() {
     this.chatgptUrl = process.env.CHATGPT_URL || 'https://chatgpt.com/';
-    this.email = process.env.CHATGPT_EMAIL || '';
-    this.password = process.env.CHATGPT_PASSWORD || '';
     const appRoot = process.cwd(); // Resolves safely to where server.js runs
     this.tempImageFolder = path.join(appRoot, 'temp_images');
     this.generatedImagesFolder = path.join(appRoot, 'generated_images');
@@ -27,16 +25,16 @@ class ChatGPTAutomation {
     this.activeTotalImages = 0;
     this.generationInProgress = false;
     this.sessionToken = process.env.CHATGPT_SESSION_TOKEN || "";
-    // ✨ ADD THIS LINE RIGHT UNDER THEM:
+    // ? ADD THIS LINE RIGHT UNDER THEM:
     this.browser = null;
 
     // Safety checks to log out exactly what your app sees upon startup
     if (process.env.CHATGPT_SESSION_TOKEN_0) {
-      console.log('📝 Constructor Status: Multi-part chunks (0 and 1) verified inside .env');
+      console.log('?? Constructor Status: Multi-part chunks (0 and 1) verified inside .env');
     } else if (this.sessionToken) {
-      console.log('📝 Constructor Status: Single unified token layout detected inside .env');
+      console.log('?? Constructor Status: Single unified token layout detected inside .env');
     } else {
-      console.log('⚠️ Constructor Status: No local tokens or chunks matched in .env variables');
+      console.log('?? Constructor Status: No local tokens or chunks matched in .env variables');
     }
 
     if (!fs.existsSync(this.tempImageFolder)) {
@@ -59,7 +57,7 @@ class ChatGPTAutomation {
       data: data
     };
     fs.writeFileSync(this.statusFile, JSON.stringify(statusData, null, 2));
-    console.log(`📊 Status updated: ${status}`);
+    console.log(`?? Status updated: ${status}`);
 
     if (typeof this._serverUpdateStatus === 'function') {
       this._serverUpdateStatus(status, data.message || status, data);
@@ -73,20 +71,20 @@ class ChatGPTAutomation {
     let results = null;
 
     try {
-      console.log(`🚀 Launching Chrome with persistent profile...`);
-      console.log(`📸 Processing ${images.length} images`);
+      console.log(`?? Launching Chrome with persistent profile...`);
+      console.log(`?? Processing ${images.length} images`);
       
       this.updateStatus('starting', { message: 'Launching Chrome...', totalImages: images.length });
       
-      // ✨ FIX: Wipe old profile directory to release SingletonLocks and stale cache files before launch
+      // ? FIX: Wipe old profile directory to release SingletonLocks and stale cache files before launch
       try {
         if (fs.existsSync(this.profileFolder)) {
-          console.log('🧹 [AUTOMATION] Wiping profile folder to clear locks and ensure a pristine launch...');
+          console.log('?? [AUTOMATION] Wiping profile folder to clear locks and ensure a pristine launch...');
           fs.rmSync(this.profileFolder, { recursive: true, force: true });
           fs.mkdirSync(this.profileFolder, { recursive: true });
         }
       } catch (profileErr) {
-        console.warn('⚠️ [AUTOMATION] Non-fatal warning clearing profile folder:', profileErr.message);
+        console.warn('?? [AUTOMATION] Non-fatal warning clearing profile folder:', profileErr.message);
       }
       
       // 1. Launch the profile configuration safely
@@ -109,24 +107,28 @@ class ChatGPTAutomation {
       );
       
       try {
-        console.log('🧹 Clearing stale profile cookies to prevent session mixups...');
+        console.log('?? Clearing stale profile cookies to prevent session mixups...');
         await context.clearCookies();
       } catch (clearErr) {
-        console.error('⚠️ Could not wipe old profile cookies:', clearErr.message);
+        console.error('?? Could not wipe old profile cookies:', clearErr.message);
       }
 
       // 2. FETCH & INJECT LIVE SESSION COOKIES (Supports unified token or chunked formats)
       try {
         const liveCookies = await this.fetchLiveCookies();
+        if (!liveCookies || liveCookies.length === 0) {
+          throw new Error('ChatGPT session cookies are missing. Set CHATGPT_SESSION_TOKEN (or its chunks) before running analysis.');
+        }
         if (liveCookies && liveCookies.length > 0) {
-          console.log(`🍪 Injecting ${liveCookies.length} session cookies into context...`);
+          console.log(`?? Injecting ${liveCookies.length} session cookies into context...`);
           await context.addCookies(liveCookies);
-          console.log('✅ Session cookies successfully attached.');
+          console.log('? Session cookies successfully attached.');
         } else {
-          console.log('ℹ️ No local session cookies found; proceeding with existing state.');
+          console.log('?? No local session cookies found; proceeding with existing state.');
         }
       } catch (cookieError) {
-        console.error('⚠️ Problem injecting session cookies:', cookieError.message);
+        throw new Error(`Could not inject ChatGPT session cookies: ${cookieError.message}`);
+        console.error('?? Problem injecting session cookies:', cookieError.message);
       }
 
       // 3. Open your page as normal
@@ -134,12 +136,12 @@ class ChatGPTAutomation {
       this.activePage = page;
       this.activeContext = context;
       
-      console.log('🌐 Navigating to ChatGPT...');
+      console.log('?? Navigating to ChatGPT...');
       this.updateStatus('navigating', { message: 'Opening ChatGPT...' });
       await page.goto(this.chatgptUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
       // Handle login / Verification of UI layout
-      console.log('🔐 Checking login status...');
+      console.log('?? Checking login status...');
       this.updateStatus('checking_login', { message: 'Checking login status...' });
       
       await page.waitForTimeout(3000);
@@ -152,11 +154,12 @@ class ChatGPTAutomation {
       const textareaSelector = 'textarea[id="prompt-textarea"], #prompt-textarea, [contenteditable="true"]';
       
       if (loginButtonExists && await loginButton.isVisible({ timeout: 2000 })) {
-        console.log('🔑 Login button found. Automating login...');
+        throw new Error('ChatGPT session cookies are expired or invalid. Refresh CHATGPT_SESSION_TOKEN and try again. Manual login is disabled.');
+        console.log('?? Login button found. Automating login...');
         this.updateStatus('logging_in', { message: 'Logging in to ChatGPT...' });
         
         await loginButton.click();
-        console.log('✅ Login button clicked');
+        console.log('? Login button clicked');
         await page.waitForTimeout(3000);
 
         let credentialLoginStarted = await this.handleDirectChatGPTLogin(page);
@@ -174,7 +177,7 @@ class ChatGPTAutomation {
             try {
               const btn = await page.locator(selector).first();
               if (await btn.count() > 0 && await btn.isVisible({ timeout: 1000 })) {
-                console.log('🔑 Clicking "Continue with Google"...');
+                console.log('?? Clicking "Continue with Google"...');
                 await btn.click();
                 googleButtonFound = true;
                 await page.waitForTimeout(3000);
@@ -188,25 +191,25 @@ class ChatGPTAutomation {
           } else {
             const emailInput = await page.locator('input[name="identifier"], input#identifierId').first();
             if (await emailInput.count() > 0 && await emailInput.isVisible({ timeout: 2000 })) {
-              console.log('📧 Already on Google login page. Filling credentials...');
+              console.log('?? Already on Google login page. Filling credentials...');
               await this.handleGoogleLoginPrecise(page);
             }
           }
         }
         
-        console.log('⏳ Waiting for login to complete...');
+        console.log('? Waiting for login to complete...');
         await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 60000 });
         await this.ensureChatGPTReady(page, textareaSelector);
-        console.log('✅ Login successful!');
+        console.log('? Login successful!');
         
       } else {
-        console.log('✅ Already logged in or no login needed');
+        console.log('? Already logged in or no login needed');
         try {
           await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 10000 });
           await this.ensureChatGPTReady(page, textareaSelector);
-          console.log('✅ Chat interface ready');
+          console.log('? Chat interface ready');
         } catch (error) {
-          console.log('⚠️ Could not find chat interface, may need manual intervention');
+          console.log('?? Could not find chat interface, may need manual intervention');
           await page.waitForSelector(textareaSelector, { state: 'visible', timeout: 30000 });
           await this.ensureChatGPTReady(page, textareaSelector);
         }
@@ -214,7 +217,7 @@ class ChatGPTAutomation {
 
       await page.waitForTimeout(2000);
       await page.screenshot({ path: path.join(__dirname, 'generated_images', 'render_debug.png'), fullPage: true });
-      console.log("📸 Debug screenshot saved to /generated-images/render_debug.png");
+      console.log("?? Debug screenshot saved to /generated-images/render_debug.png");
       // Start a new chat
       try {
         const newChatBtn = await page.locator('a:has-text("New Chat"), button:has-text("New Chat")').first();
@@ -228,29 +231,29 @@ class ChatGPTAutomation {
       }
 
       // STEP 1: Download all images
-      console.log(`📥 Downloading all ${images.length} images...`);
+      console.log(`?? Downloading all ${images.length} images...`);
       this.updateStatus('downloading', { message: 'Downloading images...', totalImages: images.length });
       
       downloadedImages = await this.downloadImages(images);
       
       if (downloadedImages.length === 0) {
-        console.log('⚠️ No images downloaded');
+        console.log('?? No images downloaded');
         results = this.getFallbackResults(images);
         this.updateStatus('completed', { results: results });
         await this.saveResultsAndKeepOpen(results, page, context);
         return results;
       }
 
-      console.log(`✅ Downloaded ${downloadedImages.length} images successfully`);
+      console.log(`? Downloaded ${downloadedImages.length} images successfully`);
 
       // STEP 2: Upload images to ChatGPT
-      console.log('📤 Uploading images to ChatGPT...');
+      console.log('?? Uploading images to ChatGPT...');
       this.updateStatus('uploading', { message: 'Uploading images to ChatGPT...' });
       
       await this.uploadImagesOptimized(page, downloadedImages);
 
       // PROMPT 1: AMAZON LISTING ANALYSIS
-      console.log('📝 Sending Prompt 1: Amazon Listing Analysis...');
+      console.log('?? Sending Prompt 1: Amazon Listing Analysis...');
       this.updateStatus('analyzing', { message: 'Analyzing images...' });
       
       const analysisPrompt = this.buildAnalysisPrompt(downloadedImages.length);
@@ -266,28 +269,29 @@ class ChatGPTAutomation {
       const promptSent = await this.sendPromptWithEnter(page, analysisPrompt);
       
       if (!promptSent) {
-        console.log('⚠️ Failed to send prompt automatically. Please send manually.');
+        throw new Error('ChatGPT did not accept the analysis prompt.');
+        console.log('?? Failed to send prompt automatically. Please send manually.');
         this.updateStatus('waiting_manual', { message: 'Error!' });
         await page.waitForTimeout(10000);
       }
       
-      console.log('📤 Analysis prompt sent!');
+      console.log('?? Analysis prompt sent!');
 
-      console.log('⏳ Waiting for analysis response...');
-      console.log('⏰ This may take 2-3 minutes for comprehensive analysis...');
+      console.log('? Waiting for analysis response...');
+      console.log('? This may take 2-3 minutes for comprehensive analysis...');
       
       const analysisResponse = await this.waitForResponseWithContent(page, 300);
       
       if (!analysisResponse) {
-        console.log('⚠️ No analysis response received');
+        console.log('?? No analysis response received');
         results = this.getFallbackResults(images);
         this.updateStatus('completed', { results: results });
         await this.saveResultsAndKeepOpen(results, page, context);
         return results;
       }
 
-      console.log('✅ Analysis response received!');
-      console.log('🔍 Parsing analysis results...');
+      console.log('? Analysis response received!');
+      console.log('?? Parsing analysis results...');
       
       // Parse the analysis results
       const analysisResults = this.parseAnalysisResponse(analysisResponse, images);
@@ -303,7 +307,7 @@ class ChatGPTAutomation {
       };
       
       fs.writeFileSync(this.resultsFile, JSON.stringify(analysisData, null, 2));
-      console.log(`📁 Analysis results saved to: ${this.resultsFile}`);
+      console.log(`?? Analysis results saved to: ${this.resultsFile}`);
       
       this.updateStatus('analysis_complete', {
         message: 'Analysis complete! Review the results in the plugin.',
@@ -335,10 +339,10 @@ class ChatGPTAutomation {
       return results;
 
     } catch (error) {
-      console.error('❌ Error:', error.message);
+      console.error('? Error:', error.message);
       if (page) {
         await page.screenshot({ path: 'error-screenshot.png' });
-        console.log('📸 Saved error screenshot');
+        console.log('?? Saved error screenshot');
       }
       results = this.getFallbackResults(images);
       
@@ -350,99 +354,12 @@ class ChatGPTAutomation {
       try {
         await this.saveResultsAndKeepOpen(results, page, context);
       } catch (e) {
-        console.log('⚠️ Could not save results:', e.message);
+        console.log('?? Could not save results:', e.message);
         if (context) await context.close();
       }
       
       return results;
     }
-  }
-
-  async handleDirectChatGPTLogin(page) {
-    if (!this.email || !this.password) {
-      console.log('email/password are not set in .env; skipping direct login.');
-      return false;
-    }
-
-    const emailSelectors = [
-      'input[name="email"]',
-      'input[type="email"]',
-      'input#email-input',
-      'input[autocomplete="username"]'
-    ];
-
-    let emailField = null;
-    for (const selector of emailSelectors) {
-      try {
-        const field = page.locator(selector).first();
-        if (await field.count() > 0 && await field.isVisible({ timeout: 1500 })) {
-          emailField = field;
-          break;
-        }
-      } catch (error) {}
-    }
-
-    if (!emailField) return false;
-
-    console.log('Filling ChatGPT email from .env...');
-    await emailField.fill(this.email);
-    await page.waitForTimeout(500);
-
-    const continueSelectors = [
-      'button:has-text("Continue")',
-      'button[type="submit"]',
-      'button[data-testid="login-button"]'
-    ];
-
-    for (const selector of continueSelectors) {
-      try {
-        const button = page.locator(selector).first();
-        if (await button.count() > 0 && await button.isVisible({ timeout: 1000 })) {
-          await button.click();
-          await page.waitForTimeout(2500);
-          break;
-        }
-      } catch (error) {}
-    }
-
-    const passwordSelectors = [
-      'input[name="password"]',
-      'input[type="password"]',
-      'input#password',
-      'input[autocomplete="current-password"]'
-    ];
-
-    let passwordField = null;
-    for (const selector of passwordSelectors) {
-      try {
-        const field = page.locator(selector).first();
-        if (await field.count() > 0 && await field.isVisible({ timeout: 2500 })) {
-          passwordField = field;
-          break;
-        }
-      } catch (error) {}
-    }
-
-    if (!passwordField) return true;
-
-    console.log('Filling ChatGPT password from .env...');
-    await passwordField.fill(this.password);
-    await page.waitForTimeout(500);
-
-    for (const selector of continueSelectors) {
-      try {
-        const button = page.locator(selector).first();
-        if (await button.count() > 0 && await button.isVisible({ timeout: 1000 })) {
-          await button.click();
-          await page.waitForTimeout(5000);
-          return true;
-        }
-      } catch (error) {}
-    }
-
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(5000);
-    return true;
   }
 
   async pastePromptFast(page, chatBox, prompt) {
@@ -462,7 +379,7 @@ class ChatGPTAutomation {
       await page.keyboard.up(modifier);
       await page.waitForTimeout(300);
 
-      const pastedText = await chatBox.textContent();
+      const pastedText = await chatBox.evaluate((element) => element.value || element.innerText || element.textContent || '');
       if (pastedText && pastedText.trim().length > 0) {
         console.log('Prompt pasted from clipboard');
         return true;
@@ -489,7 +406,7 @@ class ChatGPTAutomation {
       }, prompt);
       await page.waitForTimeout(300);
 
-      const domText = await chatBox.textContent();
+      const domText = await chatBox.evaluate((element) => element.value || element.innerText || element.textContent || '');
       if (domText && domText.trim().length > 0) {
         console.log('Prompt inserted directly');
         return true;
@@ -501,7 +418,7 @@ class ChatGPTAutomation {
     try {
       await chatBox.fill(prompt);
       await page.waitForTimeout(300);
-      const filledText = await chatBox.textContent();
+      const filledText = await chatBox.evaluate((element) => element.value || element.innerText || element.textContent || '');
       if (filledText && filledText.trim().length > 0) {
         console.log('Prompt filled directly');
         return true;
@@ -521,7 +438,9 @@ class ChatGPTAutomation {
       return false;
     }
 
-    console.log('⚠️ ChatGPT expired-session modal detected. Attempting recovery...');
+    throw new Error('ChatGPT session has expired. Refresh CHATGPT_SESSION_TOKEN and try again. Manual login is disabled.');
+
+    console.log('?? ChatGPT expired-session modal detected. Attempting recovery...');
     this.updateStatus('logging_in', {
       message: 'ChatGPT session expired. Reopening login/session...'
     });
@@ -585,7 +504,7 @@ class ChatGPTAutomation {
       throw new Error('ChatGPT session expired and could not be recovered automatically. Update the ChatGPT session token/cookies on Render, then try again.');
     }
 
-    console.log('✅ Expired-session modal cleared.');
+    console.log('? Expired-session modal cleared.');
     return true;
   }
 
@@ -604,16 +523,16 @@ class ChatGPTAutomation {
 
   async sendPromptWithEnter(page, prompt) {
     try {
-      console.log('📝 Sending prompt with Enter key...');
+      console.log('?? Sending prompt with Enter key...');
       
       // 1. Give the UI breathing room to finish rendering the 9 images
-      console.log('⏳ Waiting 5 seconds for batch image uploads to stabilize...');
+      console.log('? Waiting 5 seconds for batch image uploads to stabilize...');
       await page.waitForTimeout(5000);
 
       // 2. Wait explicitly for visibility and increase the timeout to 60 seconds
-      await this.ensureChatGPTReady(page, '#prompt-textarea');
+      await this.ensureChatGPTReady(page, 'textarea[id="prompt-textarea"], #prompt-textarea, [contenteditable="true"]');
 
-      const chatBox = await page.locator('#prompt-textarea').first();
+      const chatBox = await page.locator('textarea[id="prompt-textarea"], #prompt-textarea, [contenteditable="true"]').first();
       
       await chatBox.click({ noWaitAfter: true });
       await page.waitForTimeout(500);
@@ -631,18 +550,18 @@ class ChatGPTAutomation {
       }
       await page.waitForTimeout(500);
       
-      console.log('🔑 Pressing Enter to send...');
+      console.log('?? Pressing Enter to send...');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(1000);
       
       let messageSent = await this.checkIfMessageWasSent(page);
       
       if (messageSent) {
-        console.log('✅ Message sent with Enter key!');
+        console.log('? Message sent with Enter key!');
         return true;
       }
       
-      console.log('⚠️ Enter didn\'t work, trying Ctrl+Enter...');
+      console.log('?? Enter didn\'t work, trying Ctrl+Enter...');
       await chatBox.click({ noWaitAfter: true });
       await page.waitForTimeout(300);
       await page.keyboard.down('Control');
@@ -653,17 +572,17 @@ class ChatGPTAutomation {
       messageSent = await this.checkIfMessageWasSent(page);
       
       if (messageSent) {
-        console.log('✅ Message sent with Ctrl+Enter!');
+        console.log('? Message sent with Ctrl+Enter!');
         return true;
       }
       
-      console.log('⚠️ Keyboard shortcuts failed, trying Send button...');
+      console.log('?? Keyboard shortcuts failed, trying Send button...');
       
       const sendButtonSelectors = [
         'button[data-testid="send-button"]',
         'button[aria-label="Send message"]',
         'button:has-text("Send")',
-        'button:has-text("→")',
+        'button:has-text("?")',
         'button:has(svg[data-icon="arrow-right"])',
         '.composer-submit-button',
         'button:has(svg)'
@@ -675,7 +594,7 @@ class ChatGPTAutomation {
           const btn = await page.locator(selector).first();
           if (await btn.count() > 0 && await btn.isVisible({ timeout: 1000 })) {
             await btn.click();
-            console.log(`✅ Clicked Send button: ${selector}`);
+            console.log(`? Clicked Send button: ${selector}`);
             sendButtonFound = true;
             await page.waitForTimeout(1000);
             break;
@@ -686,12 +605,12 @@ class ChatGPTAutomation {
       if (sendButtonFound) {
         messageSent = await this.checkIfMessageWasSent(page);
         if (messageSent) {
-          console.log('✅ Message sent with Send button!');
+          console.log('? Message sent with Send button!');
           return true;
         }
       }
       
-      console.log('⚠️ Send button failed, trying double Enter...');
+      console.log('?? Send button failed, trying double Enter...');
       await chatBox.click({ noWaitAfter: true });
       await page.waitForTimeout(300);
       await page.keyboard.press('Enter');
@@ -702,15 +621,15 @@ class ChatGPTAutomation {
       messageSent = await this.checkIfMessageWasSent(page);
       
       if (messageSent) {
-        console.log('✅ Message sent with double Enter!');
+        console.log('? Message sent with double Enter!');
         return true;
       }
       
-      console.log('❌ All send methods failed. Please send manually.');
+      console.log('? All send methods failed. Please send manually.');
       return false;
       
     } catch (error) {
-      console.error('❌ Error sending prompt:', error.message);
+      console.error('? Error sending prompt:', error.message);
       return false;
     }
   }
@@ -719,13 +638,13 @@ class ChatGPTAutomation {
     try {
       const stopButton = await page.locator('button[aria-label*="Stop"]').first();
       if (await stopButton.count() > 0 && await stopButton.isVisible({ timeout: 1000 })) {
-        console.log('  ✅ Response is generating (stop button visible)');
+        console.log('  ? Response is generating (stop button visible)');
         return true;
       }
       
       const loadingIndicator = await page.locator('[data-testid*="loading"], .loading, .generating').first();
       if (await loadingIndicator.count() > 0 && await loadingIndicator.isVisible({ timeout: 1000 })) {
-        console.log('  ✅ Response is generating (loading indicator visible)');
+        console.log('  ? Response is generating (loading indicator visible)');
         return true;
       }
       
@@ -733,7 +652,7 @@ class ChatGPTAutomation {
       if (await chatBox.count() > 0) {
         const text = await chatBox.textContent();
         if (!text || text.trim().length === 0) {
-          console.log('  ✅ Textarea is empty, message likely sent');
+          console.log('  ? Textarea is empty, message likely sent');
           return true;
         }
       }
@@ -750,7 +669,7 @@ class ChatGPTAutomation {
     let lastContentLength = 0;
     let stableCount = 0;
 
-    console.log(`⏳ Waiting up to ${timeoutSeconds} seconds for response...`);
+    console.log(`? Waiting up to ${timeoutSeconds} seconds for response...`);
 
     // Fix: Give ChatGPT a brief 3-second window to process the prompt and render the UI state
   await page.waitForTimeout(3000);
@@ -776,14 +695,14 @@ class ChatGPTAutomation {
         if (currentLength > lastContentLength) {
           lastContentLength = currentLength;
           stableCount = 0;
-          console.log(`  📝 Response building... (${currentLength} characters)`);
+          console.log(`  ?? Response building... (${currentLength} characters)`);
         }
       } else {
         // No stop button visible. Verify if content is stable and valid.
         if (currentLength > 100 && currentLength === lastContentLength) {
           stableCount++;
           if (stableCount >= 3) { // Must remain unchanged for 3 consecutive checks (6 seconds)
-            console.log(`  ✅ Response complete and stable (${currentLength} characters)`);
+            console.log(`  ? Response complete and stable (${currentLength} characters)`);
             return currentText;
           }
         } else if (currentLength > lastContentLength) {
@@ -796,7 +715,7 @@ class ChatGPTAutomation {
         }
       }
     } catch (error) {
-      console.log(`  ⚠️ Error in response check loop: ${error.message}`);
+      console.log(`  ?? Error in response check loop: ${error.message}`);
     }
 
     await page.waitForTimeout(2000);
@@ -810,7 +729,7 @@ class ChatGPTAutomation {
     }
   }
 
-  console.log('⚠️ Response wait timed out');
+  console.log('?? Response wait timed out');
   try {
     const assistantMessages = page.locator('[data-message-author-role="assistant"]');
     if (await assistantMessages.count() > 0) {
@@ -821,196 +740,20 @@ class ChatGPTAutomation {
   return '';
 }
 
-  async handleGoogleLoginPrecise(page) {
-    console.log('🔐 Handling Google login with precise selectors...');
-    
-    try {
-      await page.waitForTimeout(3000);
-      
-      console.log('📧 Looking for email/phone input field...');
-      
-      const emailSelectors = [
-        'input#identifierId',
-        'input[name="identifier"]',
-        'input[type="email"]',
-        'input[aria-label="Email or phone"]',
-        'input[autocomplete="username webauthn"]',
-        '.whsOnd.zHQkBf'
-      ];
-      
-      let emailField = null;
-      let emailFound = false;
-      
-      for (const selector of emailSelectors) {
-        try {
-          const field = await page.locator(selector).first();
-          if (await field.count() > 0 && await field.isVisible({ timeout: 2000 })) {
-            emailField = field;
-            emailFound = true;
-            console.log(`✅ Found email field with selector: ${selector}`);
-            break;
-          }
-        } catch (e) {}
-      }
-      
-      if (emailFound && emailField) {
-        console.log(`📧 Filling email: ${this.email}`);
-        await emailField.click();
-        await emailField.fill(this.email);
-        console.log('✅ Email filled');
-        await page.waitForTimeout(500);
-        
-        console.log('🔍 Looking for Next button...');
-        
-        const nextButtonSelectors = [
-          'button:has-text("Next")',
-          'button:has-text("Continue")',
-          'button[type="submit"]',
-          'button[jsname="LgbsSe"]',
-          'div#identifierNext button'
-        ];
-        
-        let nextClicked = false;
-        for (const selector of nextButtonSelectors) {
-          try {
-            const btn = await page.locator(selector).first();
-            if (await btn.count() > 0 && await btn.isVisible({ timeout: 2000 })) {
-              await btn.click();
-              console.log(`✅ Clicked Next with: ${selector}`);
-              nextClicked = true;
-              await page.waitForTimeout(3000);
-              break;
-            }
-          } catch (e) {}
-        }
-        
-        if (!nextClicked) {
-          await page.keyboard.press('Enter');
-          console.log('✅ Pressed Enter to continue');
-          await page.waitForTimeout(3000);
-        }
-        
-        console.log('🔑 Looking for password input field...');
-        
-        const passwordSelectors = [
-          'input[name="Passwd"]',
-          'input[type="password"]',
-          'input[aria-label="Enter your password"]',
-          'input[autocomplete="current-password webauthn"]',
-          '.whsOnd.zHQkBf[type="password"]'
-        ];
-        
-        let passwordField = null;
-        let passwordFound = false;
-        
-        for (const selector of passwordSelectors) {
-          try {
-            const field = await page.locator(selector).first();
-            if (await field.count() > 0 && await field.isVisible({ timeout: 5000 })) {
-              passwordField = field;
-              passwordFound = true;
-              console.log(`✅ Found password field with selector: ${selector}`);
-              break;
-            }
-          } catch (e) {}
-        }
-        
-        if (passwordFound && passwordField) {
-          console.log('🔑 Filling password...');
-          await passwordField.click();
-          await passwordField.fill(this.password);
-          console.log('✅ Password filled');
-          await page.waitForTimeout(500);
-          
-          console.log('🔍 Looking for login submit button...');
-          
-          const loginSubmitSelectors = [
-            'button:has-text("Next")',
-            'button:has-text("Sign in")',
-            'button:has-text("Log in")',
-            'button[type="submit"]',
-            'button[jsname="LgbsSe"]',
-            'div#passwordNext button'
-          ];
-          
-          let loginClicked = false;
-          for (const selector of loginSubmitSelectors) {
-            try {
-              const btn = await page.locator(selector).first();
-              if (await btn.count() > 0 && await btn.isVisible({ timeout: 2000 })) {
-                await btn.click();
-                console.log(`✅ Clicked login with: ${selector}`);
-                loginClicked = true;
-                await page.waitForTimeout(3000);
-                break;
-              }
-            } catch (e) {}
-          }
-          
-          if (!loginClicked) {
-            await page.keyboard.press('Enter');
-            console.log('✅ Pressed Enter to login');
-            await page.waitForTimeout(3000);
-          }
-          
-          console.log('🔍 Checking for 2FA verification...');
-          
-          const verificationSelectors = [
-            'input[placeholder*="verification"]',
-            'input[placeholder*="code"]',
-            'input[placeholder*="6-digit"]',
-            'input[aria-label*="verification"]',
-            'input[autocomplete="one-time-code"]'
-          ];
-          
-          for (const selector of verificationSelectors) {
-            try {
-              const field = await page.locator(selector).first();
-              if (await field.count() > 0 && await field.isVisible({ timeout: 2000 })) {
-                console.log('⚠️ 2FA verification detected. Please complete manually.');
-                this.updateStatus('waiting_2fa', { 
-                  message: '2FA verification required. Please complete manually in the browser.' 
-                });
-                console.log('⏳ Waiting for 2FA to be completed (up to 60 seconds)...');
-                await page.waitForTimeout(60000);
-                break;
-              }
-            } catch (e) {}
-          }
-          
-        } else {
-          console.log('⚠️ Password field not found.');
-          console.log('⏳ Please enter password manually...');
-          await page.waitForTimeout(10000);
-        }
-        
-      } else {
-        console.log('⚠️ Email field not found on Google login page.');
-        console.log('⏳ Waiting for manual login...');
-        await page.waitForTimeout(10000);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error during Google login:', error.message);
-      console.log('⏳ Please complete login manually...');
-      await page.waitForTimeout(10000);
-    }
-  }
-
   async uploadImagesOptimized(page, imagePaths) {
     try {
-      console.log('  🔍 Finding upload option...');
+      console.log('  ?? Finding upload option...');
       
       let fileInput = await page.locator('input[type="file"]').first();
       let fileInputFound = await fileInput.count() > 0;
       
       if (fileInputFound) {
-        console.log('  ✅ Found file input directly!');
+        console.log('  ? Found file input directly!');
         await this.uploadFilesFast(page, fileInput, imagePaths);
         return;
       }
       
-      console.log('  ⚡ Trying keyboard shortcut Ctrl+U...');
+      console.log('  ? Trying keyboard shortcut Ctrl+U...');
       try {
         await this.ensureChatGPTReady(page, '#prompt-textarea');
         const chatBox = await page.locator('#prompt-textarea').first();
@@ -1028,22 +771,22 @@ class ChatGPTAutomation {
         fileInputFound = await fileInput.count() > 0;
         
         if (fileInputFound) {
-          console.log('  ✅ File input appeared after Ctrl+U!');
+          console.log('  ? File input appeared after Ctrl+U!');
           await this.uploadFilesFast(page, fileInput, imagePaths);
           return;
         }
       } catch (e) {
-        console.log('  ⚠️ Ctrl+U shortcut failed:', e.message);
+        console.log('  ?? Ctrl+U shortcut failed:', e.message);
       }
       
-      console.log('  🔍 Looking for attach button...');
+      console.log('  ?? Looking for attach button...');
       try {
         const attachSelectors = [
           'button[data-testid="composer-attach"]',
           'button[aria-label="Attach files"]',
           'button:has(svg[data-icon="paperclip"])',
           'button:has(svg[data-icon="attachment"])',
-          'button:has-text("📎")',
+          'button:has-text("??")',
           '.composer-attach-button',
           '[data-testid="composer-plus-btn"]',
           'button:has-text("+")'
@@ -1056,7 +799,7 @@ class ChatGPTAutomation {
             if (await btn.count() > 0) {
               const isVisible = await btn.isVisible({ timeout: 1000 });
               if (isVisible) {
-                console.log(`  ✅ Found attach button: ${selector}`);
+                console.log(`  ? Found attach button: ${selector}`);
                 await btn.click();
                 attachFound = true;
                 await page.waitForTimeout(500);
@@ -1082,7 +825,7 @@ class ChatGPTAutomation {
               if (await btn.count() > 0) {
                 const isVisible = await btn.isVisible({ timeout: 1000 });
                 if (isVisible) {
-                  console.log(`  ✅ Found upload option: ${selector}`);
+                  console.log(`  ? Found upload option: ${selector}`);
                   await btn.click();
                   await page.waitForTimeout(500);
                   break;
@@ -1095,23 +838,23 @@ class ChatGPTAutomation {
           fileInputFound = await fileInput.count() > 0;
           
           if (fileInputFound) {
-            console.log('  ✅ File input found after attach!');
+            console.log('  ? File input found after attach!');
             await this.uploadFilesFast(page, fileInput, imagePaths);
             return;
           }
         }
       } catch (e) {
-        console.log('  ⚠️ Attach button method failed:', e.message);
+        console.log('  ?? Attach button method failed:', e.message);
       }
       
-      console.log('  ⚠️ Could not find file input automatically.');
-      console.log('  ⏳ Please upload images manually (20 seconds)...');
+      console.log('  ?? Could not find file input automatically.');
+      console.log('  ? Please upload images manually (20 seconds)...');
       
       try {
         await page.evaluate(() => {
           const msg = document.createElement('div');
           msg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:30px;border-radius:10px;box-shadow:0 0 30px rgba(0,0,0,0.3);z-index:9999;text-align:center;font-size:18px;';
-          msg.innerHTML = '📤 Please upload the images manually<br><span style="font-size:14px;color:#666;">Use the paperclip icon → Upload from computer</span>';
+          msg.innerHTML = '?? Please upload the images manually<br><span style="font-size:14px;color:#666;">Use the paperclip icon ? Upload from computer</span>';
           document.body.appendChild(msg);
           setTimeout(() => msg.remove(), 20000);
         });
@@ -1123,53 +866,53 @@ class ChatGPTAutomation {
       fileInputFound = await fileInput.count() > 0;
       
       if (fileInputFound) {
-        console.log('  ✅ File input found after manual upload!');
+        console.log('  ? File input found after manual upload!');
         await this.uploadFilesFast(page, fileInput, imagePaths);
       }
       
     } catch (error) {
-      console.error('  ❌ Upload error:', error.message);
-      console.log('  ⏳ Please upload images manually (15 seconds)...');
+      console.error('  ? Upload error:', error.message);
+      console.log('  ? Please upload images manually (15 seconds)...');
       await page.waitForTimeout(15000);
     }
   }
 
   async uploadFilesFast(page, fileInput, imagePaths) {
     try {
-      console.log(`  📁 Uploading ${imagePaths.length} images...`);
+      console.log(`  ?? Uploading ${imagePaths.length} images...`);
       
       try {
         await fileInput.setInputFiles(imagePaths);
-        console.log(`  ✅ All ${imagePaths.length} images uploaded! (batch)`);
+        console.log(`  ? All ${imagePaths.length} images uploaded! (batch)`);
         await page.waitForTimeout(2000);
         return;
       } catch (error) {
-        console.log('  ⚠️ Batch upload failed, trying individual uploads...');
+        console.log('  ?? Batch upload failed, trying individual uploads...');
       }
       
       for (let i = 0; i < imagePaths.length; i++) {
         try {
-          console.log(`  📤 Uploading image ${i + 1}/${imagePaths.length}...`);
+          console.log(`  ?? Uploading image ${i + 1}/${imagePaths.length}...`);
           await fileInput.setInputFiles([imagePaths[i]]);
           await page.waitForTimeout(300);
-          console.log(`  ✅ Image ${i + 1} uploaded`);
+          console.log(`  ? Image ${i + 1} uploaded`);
         } catch (e) {
-          console.error(`  ❌ Failed to upload image ${i + 1}:`, e.message);
+          console.error(`  ? Failed to upload image ${i + 1}:`, e.message);
         }
       }
       
-      console.log(`  ✅ Upload complete!`);
+      console.log(`  ? Upload complete!`);
       await page.waitForTimeout(1000);
       
     } catch (error) {
-      console.error('  ❌ Upload error:', error.message);
+      console.error('  ? Upload error:', error.message);
     }
   }
 
   async waitForContinuation(page) {
     fs.writeFileSync(this.continueSignalFile, JSON.stringify({ status: 'waiting' }));
     
-    console.log('📌 Waiting for "continue" signal from plugin...');
+    console.log('?? Waiting for "continue" signal from plugin...');
     
     let attempts = 0;
     const maxAttempts = 600;
@@ -1179,7 +922,7 @@ class ChatGPTAutomation {
         if (fs.existsSync(this.continueSignalFile)) {
           const signalData = JSON.parse(fs.readFileSync(this.continueSignalFile, 'utf8'));
           if (signalData.status === 'continue') {
-            console.log('✅ Continue signal received!');
+            console.log('? Continue signal received!');
             fs.writeFileSync(this.continueSignalFile, JSON.stringify({ status: 'waiting' }));
             return true;
           }
@@ -1190,7 +933,7 @@ class ChatGPTAutomation {
       attempts++;
       
       if (attempts % 30 === 0) {
-        console.log(`⏳ Still waiting for continuation signal... (${Math.floor(attempts/60)} minutes)`);
+        console.log(`? Still waiting for continuation signal... (${Math.floor(attempts/60)} minutes)`);
         this.updateStatus('waiting_continue', {
           message: `Waiting for "Generate Next" click... (${Math.floor(attempts/60)} minute${attempts >= 120 ? 's' : ''})`,
           waitTime: Math.floor(attempts/60)
@@ -1198,7 +941,7 @@ class ChatGPTAutomation {
       }
     }
     
-    console.log('⏰ Timeout waiting for continuation signal.');
+    console.log('? Timeout waiting for continuation signal.');
     this.updateStatus('timeout', {
       message: 'Timeout waiting for continuation signal.'
     });
@@ -1230,7 +973,7 @@ class ChatGPTAutomation {
 
     try {
       console.log(`\n${'='.repeat(50)}`);
-      console.log(`🎨 GENERATING IMAGE ${imageNumber}/${totalImages}`);
+      console.log(`?? GENERATING IMAGE ${imageNumber}/${totalImages}`);
       console.log(`${'='.repeat(50)}`);
 
       this.updateStatus('generating', {
@@ -1242,20 +985,21 @@ class ChatGPTAutomation {
 
       const previousGeneratedSources = await this.getGeneratedImageSources(page);
       const generationPrompt = this.buildGenerationPrompt(imageNumber, totalImages);
-      console.log(`📝 Sending generation prompt for Image ${imageNumber}...`);
+      console.log(`?? Sending generation prompt for Image ${imageNumber}...`);
 
       const genPromptSent = await this.sendPromptWithEnter(page, generationPrompt);
 
       if (!genPromptSent) {
-        console.log(`⚠️ Failed to send generation prompt for Image ${imageNumber}. Please send manually.`);
+        throw new Error(`ChatGPT did not accept the generation prompt for Image ${imageNumber}.`);
+        console.log(`?? Failed to send generation prompt for Image ${imageNumber}. Please send manually.`);
         this.updateStatus('waiting_manual', {
           message: `Please send the generation prompt for Image ${imageNumber} manually.`
         });
         await page.waitForTimeout(5000);
       }
 
-      console.log(`📤 Generation prompt for Image ${imageNumber} sent!`);
-      console.log(`⏳ Waiting for Image ${imageNumber} to be generated...`);
+      console.log(`?? Generation prompt for Image ${imageNumber} sent!`);
+      console.log(`? Waiting for Image ${imageNumber} to be generated...`);
 
       const imageResponse = await this.waitForResponseWithContent(page, 180);
       const savedGeneratedImage = await this.saveLastGeneratedImage(page, imageNumber, previousGeneratedSources);
@@ -1302,7 +1046,7 @@ class ChatGPTAutomation {
       this.updateStatus(status, {
         message: imageNumber >= totalImages
           ? `All ${totalImages} images generated successfully!`
-          : `✅ Image ${imageNumber} generated! Click "Generate Next" to continue.`,
+          : `? Image ${imageNumber} generated! Click "Generate Next" to continue.`,
         currentImage: imageNumber,
         totalImages: totalImages,
         generatedImages: generatedImages,
@@ -1361,7 +1105,7 @@ Meet the following Amazon listing image standards:
 * 4K ultra-high resolution
 * White background (compulsory only for main product image)
 * No images of customer reviews, five-star imagery, claims (for example, free shipping) or selling partner-specific information
-* No badges used on Amazon, or variations, modifications or anything confusingly similar to such badges. This includes, but is not limited to, “Amazon’s Choice”, “Premium Choice”, “Amazon Alexa”, “Works with Amazon Alexa”, “Best seller” or “Top seller”.
+* No badges used on Amazon, or variations, modifications or anything confusingly similar to such badges. This includes, but is not limited to, �Amazon�s Choice�, �Premium Choice�, �Amazon Alexa�, �Works with Amazon Alexa�, �Best seller� or �Top seller�.
 * Prohibited: Text, logos, graphics or watermarks over the top of a product or in the background
 Do not change:
 * Product name
@@ -1406,13 +1150,13 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       };
       
       fs.writeFileSync(this.resultsFile, JSON.stringify(resultsData, null, 2));
-      console.log(`📁 Results saved to: ${this.resultsFile}`);
+      console.log(`?? Results saved to: ${this.resultsFile}`);
       
-      console.log('🟢 ChatGPT remains open for you to review the results.');
-      console.log('📊 Results are also available in the plugin sidebar.');
+      console.log('?? ChatGPT remains open for you to review the results.');
+      console.log('?? Results are also available in the plugin sidebar.');
       
     } catch (error) {
-      console.error('❌ Error saving results:', error.message);
+      console.error('? Error saving results:', error.message);
     }
   }
 
@@ -1528,7 +1272,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       const candidates = await this.getGeneratedImageCandidates(page);
       return candidates.map((candidate) => candidate.src).filter(Boolean);
     } catch (error) {
-      console.log('  ⚠️ Could not snapshot existing generated images:', error.message);
+      console.log('  ?? Could not snapshot existing generated images:', error.message);
       return [];
     }
   }
@@ -1567,7 +1311,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
       try {
         // Try to fetch from browser first
-        console.log(`  📥 Fetching image data for Image ${imageNumber}...`);
+        console.log(`  ?? Fetching image data for Image ${imageNumber}...`);
         
         const base64 = await page.evaluate(async ({ src, messageIndex, imageIndex, source }) => {
           let imageSrc = src;
@@ -1684,6 +1428,59 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
   }
 
   parseAnalysisResponse(response, originalImages) {
+    return this.parseAnalysisResponseV2(response, originalImages);
+  }
+
+  parseAnalysisResponseV2(response, originalImages) {
+    if (!response) return this.getFallbackAnalysis(originalImages);
+
+    const results = {
+      individualScores: [],
+      overallScore: 'N/A',
+      detailedAnalysis: [],
+      rawResponse: response
+    };
+
+    try {
+      const text = String(response).replace(/\r/g, '').replace(/\u00a0/g, ' ');
+      const headers = [...text.matchAll(/^(?:#{1,6}\s*)?(?:\*\*)?\s*image\s*(\d+)\s*(?:\*\*)?\s*[:.-]?\s*$/gim)];
+
+      for (let index = 0; index < headers.length; index++) {
+        const header = headers[index];
+        const nextHeader = headers[index + 1];
+        const block = text.slice(header.index + header[0].length, nextHeader ? nextHeader.index : text.length);
+        const score = block.match(/\bscore\s*[:=-]?\s*(\d+(?:\.\d+)?)\s*(?:\/\s*10)?/i);
+        const reasonsSection = block.match(/(?:reasons?\s*(?:for\s*)?(?:the\s*)?(?:deducted\s*)?marks?|why\s*(?:marks?\s*)?were\s*deducted|deductions?)\s*[:=-]?\s*([\s\S]*?)(?=\n\s*(?:overall|total|final)\s+(?:listing\s+)?score\b|$)/i);
+        const reasons = (reasonsSection ? reasonsSection[1] : '')
+          .split(/\n+/)
+          .map((line) => line.replace(/^\s*(?:[-*�]+|\d+[.)])\s*/, '').replace(/^\s*(?:reason|deduction)\s*\d*\s*[:=-]\s*/i, '').replace(/\*\*/g, '').trim())
+          .filter((line) => line && !/^(?:score|overall|total|final)\b/i.test(line));
+
+        results.detailedAnalysis.push({
+          imageNumber: Number(header[1]),
+          score: score ? `${score[1]}/10` : 'N/A',
+          reasonsForDeductedMarks: reasons
+        });
+      }
+
+      const overall = text.match(/(?:overall|total|final)\s+(?:listing\s+)?score\s*[:=-]?\s*(\d+(?:\.\d+)?)\s*(?:\/\s*10)?/i);
+      if (overall) results.overallScore = `${overall[1]}/10`;
+      if (!results.detailedAnalysis.length) return this.parseAnalysisResponseAlternate(response, originalImages);
+
+      results.detailedAnalysis.sort((a, b) => a.imageNumber - b.imageNumber);
+      results.individualScores = results.detailedAnalysis.map((image) => ({
+        image: image.imageNumber,
+        score: image.score,
+        reasonsForDeductedMarks: image.reasonsForDeductedMarks
+      }));
+      return results;
+    } catch (error) {
+      console.error('Error parsing response:', error);
+      return this.parseAnalysisResponseAlternate(response, originalImages);
+    }
+  }
+
+  parseAnalysisResponseLegacy(response, originalImages) {
   const results = {
     individualScores: [],
     overallScore: 'N/A',
@@ -1765,7 +1562,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       
       // 5. Collect bullet points under the deductions section
       if (collectingReasons && currentImage && currentSection === 'reasons') {
-        const bulletMatch = line.match(/^[-•*]\s*(.+)/) || 
+        const bulletMatch = line.match(/^[-�*]\s*(.+)/) || 
                             line.match(/^\d+[.)]\s*(.+)/) || 
                             line.match(/^-\s*(.+)/);
         
@@ -1783,7 +1580,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       }
     }
     
-    // 👇 CRITICAL FIX: Save the last image block after the loop finishes exiting
+    // ?? CRITICAL FIX: Save the last image block after the loop finishes exiting
     if (currentImage) {
       results.detailedAnalysis.push(currentImage);
     }
@@ -1796,7 +1593,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 }
 
   parseAnalysisResponseAlternate(response, originalImages) {
-    console.log('🔄 Using alternate parsing method...');
+    console.log('?? Using alternate parsing method...');
     
     const results = {
       individualScores: [],
@@ -1835,7 +1632,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
           const reasonsText = reasonsMatch[1].trim();
           // Split by bullet points, new lines, or numbers
           const reasonLines = reasonsText
-            .split(/[-•*]\s*|\d+[.)]\s*|\n+/)
+            .split(/[-�*]\s*|\d+[.)]\s*|\n+/)
             .map(r => r.trim())
             .filter(r => r.length > 5 && !r.match(/^[A-Z][a-z]+:/));
           
@@ -1899,12 +1696,12 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
   }
 
   async cleanupTempImages(imagePaths) {
-    console.log('🧹 Cleaning up temporary images...');
+    console.log('?? Cleaning up temporary images...');
     for (const filepath of imagePaths) {
       try {
         if (fs.existsSync(filepath)) {
           fs.unlinkSync(filepath);
-          console.log(`  🗑️ Deleted: ${path.basename(filepath)}`);
+          console.log(`  ??? Deleted: ${path.basename(filepath)}`);
         }
       } catch (error) {}
     }
@@ -1922,7 +1719,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       const chunk1 = process.env.CHATGPT_SESSION_TOKEN_1;
 
       if (chunk0) {
-        console.log('🔑 Detected chunked session tokens. Building multi-part cookie array...');
+        console.log('?? Detected chunked session tokens. Building multi-part cookie array...');
         
         cookies.push({
           name: '__Secure-next-auth.session-token.0',
@@ -1949,7 +1746,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
         const singleToken = this.sessionToken || process.env.CHATGPT_SESSION_TOKEN;
         
         if (!singleToken) {
-          console.log('⚠️ No session tokens or chunks found in environment variables.');
+          console.log('?? No session tokens or chunks found in environment variables.');
           return [];
         }
 
@@ -1993,9 +1790,9 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       return [];
     }
   }
-  // ✨ ADD THIS NEW METHOD HERE
+  // ? ADD THIS NEW METHOD HERE
   async cleanup() {
-    console.log("🤖 [AUTOMATION] Running internal cleanup routine...");
+    console.log("?? [AUTOMATION] Running internal cleanup routine...");
     
     this.generationInProgress = false;
 
@@ -2003,9 +1800,9 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
     if (this.activePage) {
       try {
         await this.activePage.close();
-        console.log("🤖 [AUTOMATION] Active browser page closed.");
+        console.log("?? [AUTOMATION] Active browser page closed.");
       } catch (e) {
-        console.log("🤖 [AUTOMATION] Page already closed:", e.message);
+        console.log("?? [AUTOMATION] Page already closed:", e.message);
       }
       this.activePage = null;
     }
@@ -2014,14 +1811,14 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
     if (this.activeContext) {
       try {
         await this.activeContext.close();
-        console.log("🤖 [AUTOMATION] Persistent browser process terminated cleanly.");
+        console.log("?? [AUTOMATION] Persistent browser process terminated cleanly.");
       } catch (e) {
-        console.log("🤖 [AUTOMATION] Browser process already stopped:", e.message);
+        console.log("?? [AUTOMATION] Browser process already stopped:", e.message);
       }
       this.activeContext = null;
     }
     
-    console.log("🤖 [AUTOMATION] Internal cleanup complete.");
+    console.log("?? [AUTOMATION] Internal cleanup complete.");
   }
 }
 
