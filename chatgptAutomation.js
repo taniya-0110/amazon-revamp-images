@@ -89,7 +89,7 @@ class ChatGPTAutomation {
       
       // 1. Launch a clean, non-persistent browser instance with memory-saving arguments
       this.browser = await chromium.launch({
-        headless: process.env.RENDER ? true : false,
+        headless: process.env.RENDER ? false : false,
         args: [
           '--disable-blink-features=AutomationControlled',
           '--no-first-run',
@@ -996,23 +996,16 @@ Improve:
 * Visual hierarchy
 * Readability
 * Mobile visibility
-* Premium appearance
-* Conversion rate optimization
-
+IMPORTANT: The generated image should be easily readable with on the point content and visually appealing.
 Fix every weakness identified in the analysis.
-
 The redesigned image must:
 * Look like a Top 1% Amazon Best Seller listing image
-* Be highly professional
 * Be conversion-focused
 * Be mobile-first
-* Have premium commercial advertising quality
 * Have clear typography
 * Have strong product focus
 * Have excellent feature communication
 * Use modern Amazon design standards
-* Be realistic and trustworthy
-* Be 4K ultra-high resolution
 Output only ONE improved image for Image ${imageNumber}.
 Wait for the next instruction before generating Image ${imageNumber + 1}.`;
   }
