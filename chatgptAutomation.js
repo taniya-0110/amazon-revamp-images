@@ -89,7 +89,7 @@ class ChatGPTAutomation {
       
       // 1. Launch a clean, non-persistent browser instance with memory-saving arguments
       this.browser = await chromium.launch({
-        headless: process.env.RENDER ? false : false,
+        headless: process.env.RENDER ? true : false,
         args: [
           '--disable-blink-features=AutomationControlled',
           '--no-first-run',
