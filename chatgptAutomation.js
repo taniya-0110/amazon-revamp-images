@@ -516,6 +516,35 @@ class ChatGPTAutomation {
     }
   }
 
+  async checkIfMessageWasSent(page) {
+    try {
+      const stopButton = await page.locator('button[aria-label*="Stop"]').first();
+      if (await stopButton.count() > 0 && await stopButton.isVisible({ timeout: 1000 })) {
+        console.log('  ? Response is generating (stop button visible)');
+        return true;
+      }
+      
+      const loadingIndicator = await page.locator('[data-testid*="loading"], .loading, .generating').first();
+      if (await loadingIndicator.count() > 0 && await loadingIndicator.isVisible({ timeout: 1000 })) {
+        console.log('  ? Response is generating (loading indicator visible)');
+        return true;
+      }
+      
+      const chatBox = await page.locator('#prompt-textarea').first();
+      if (await chatBox.count() > 0) {
+        const text = await chatBox.textContent();
+        if (!text || text.trim().length === 0) {
+          console.log('  ? Textarea is empty, message likely sent');
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      return false;
+    }
+  }
+
   async waitForResponseWithContent(page, timeoutSeconds = 300) {
     const startTime = Date.now();
     const timeoutMs = timeoutSeconds * 1000;
@@ -524,58 +553,74 @@ class ChatGPTAutomation {
 
     console.log(`? Waiting up to ${timeoutSeconds} seconds for response...`);
 
-    // Give ChatGPT a brief 3-second window to process the prompt and render the UI state
-    await page.waitForTimeout(3000);
+    // Fix: Give ChatGPT a brief 3-second window to process the prompt and render the UI state
+  await page.waitForTimeout(3000);
 
-    while (Date.now() - startTime < timeoutMs) {
-      try {
-        const assistantMessages = page.locator('[data-message-author-role="assistant"]');
-        const msgCount = await assistantMessages.count();
-        
-        let currentText = '';
-        if (msgCount > 0) {
-          currentText = (await assistantMessages.last().textContent()) || '';
-        }
-        const currentLength = currentText.trim().length;
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const stopButtons = page.locator(
+        "button[aria-label*='Stop'], button[data-testid*='stop'], button[aria-label='Stop generating']"
+      );
+      const isGenerating = await stopButtons.count() > 0;
+      
+      const assistantMessages = page.locator('[data-message-author-role="assistant"]');
+      const msgCount = await assistantMessages.count();
+      
+      let currentText = '';
+      if (msgCount > 0) {
+        currentText = (await assistantMessages.last().textContent()) || '';
+      }
+      const currentLength = currentText.trim().length;
 
-        // Bypasses fragile UI buttons by checking text stability directly
-        if (currentLength > 100 && currentLength === lastContentLength) {
-          stableCount++;
-          if (stableCount >= 3) { // Content hasn't changed for 3 checks (6 seconds total)
-            console.log(`  ? Response complete and stable (${currentLength} characters)`);
-            return currentText;
-          }
-        } else if (currentLength > lastContentLength) {
-          // Content is actively growing
+      if (isGenerating) {
+        // ChatGPT is actively typing
+        if (currentLength > lastContentLength) {
           lastContentLength = currentLength;
           stableCount = 0;
           console.log(`  ?? Response building... (${currentLength} characters)`);
         }
-      } catch (error) {
-        console.log(`  ?? Error in response check loop: ${error.message}`);
+      } else {
+        // No stop button visible. Verify if content is stable and valid.
+        if (currentLength > 100 && currentLength === lastContentLength) {
+          stableCount++;
+          if (stableCount >= 3) { // Must remain unchanged for 3 consecutive checks (6 seconds)
+            console.log(`  ? Response complete and stable (${currentLength} characters)`);
+            return currentText;
+          }
+        } else if (currentLength > lastContentLength) {
+          // Content is expanding even if the stop button briefly flickered away
+          lastContentLength = currentLength;
+          stableCount = 0;
+        } else if (currentLength > 100 && stableCount === 0) {
+          lastContentLength = currentLength;
+          stableCount = 1;
+        }
       }
-
-      await page.waitForTimeout(2000);
-      const elapsed = Math.round((Date.now() - startTime) / 1000);
-      
-      if (elapsed % 10 === 0 && elapsed > 0) {
-        this.updateStatus('analyzing_progress', {
-          message: `Analyzing images... ${elapsed}s elapsed`,
-          progress: Math.min(elapsed / timeoutSeconds, 1)
-        });
-      }
+    } catch (error) {
+      console.log(`  ?? Error in response check loop: ${error.message}`);
     }
 
-    console.log('?? Response wait timed out');
-    try {
-      const assistantMessages = page.locator('[data-message-author-role="assistant"]');
-      if (await assistantMessages.count() > 0) {
-        return (await assistantMessages.last().textContent()) || '';
-      }
-    } catch (e) {}
+    await page.waitForTimeout(2000);
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
     
-    return '';
+    if (elapsed % 10 === 0 && elapsed > 0) {
+      this.updateStatus('analyzing_progress', {
+        message: `Analyzing images... ${elapsed}s elapsed`,
+        progress: Math.min(elapsed / timeoutSeconds, 1)
+      });
+    }
   }
+
+  console.log('?? Response wait timed out');
+  try {
+    const assistantMessages = page.locator('[data-message-author-role="assistant"]');
+    if (await assistantMessages.count() > 0) {
+      return (await assistantMessages.last().textContent()) || '';
+    }
+  } catch (e) {}
+  
+  return '';
+}
 
   async uploadImagesOptimized(page, imagePaths) {
     try {
