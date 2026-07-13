@@ -949,7 +949,7 @@ class ChatGPTAutomation {
 Analyze each attached Amazon listing image individually.
 
 - Score (/10)
-- Reasons for the deducted marks(only 2 points per image)
+- Reasons for the deducted marks(only 2 short points per image)
 
 Format your response EXACTLY as:
 
