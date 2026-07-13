@@ -87,12 +87,16 @@ class ChatGPTAutomation {
         console.warn('?? [AUTOMATION] Non-fatal warning clearing profile folder:', profileErr.message);
       }
       
-      // 1. Launch a clean, non-persistent browser instance
+      // 1. Launch a clean, non-persistent browser instance with memory-saving arguments
       this.browser = await chromium.launch({
         headless: process.env.RENDER ? true : false,
         args: [
           '--disable-blink-features=AutomationControlled',
           '--no-first-run',
+          '--disable-dev-shm-usage', // Forces Chrome to use disk instead of shared memory RAM
+          '--disable-gpu',           // Cuts hardware acceleration overhead completely
+          '--no-zygote',             // Disables auxiliary Chrome background processes
+          '--single-process',        // Forces everything into one compact RAM container
           ...(process.env.RENDER 
             ? ['--no-sandbox', '--disable-setuid-sandbox'] 
             : [])

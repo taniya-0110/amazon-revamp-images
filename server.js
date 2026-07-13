@@ -490,7 +490,7 @@ app.post(['/api/continue', '/continue'], async (req, res) => {
   }
 });
 
-// 🔄 UPGRADED: MAIN ANALYZE ENDPOINT
+// 🔄 UPGRADED: MAIN ANALYZE ENDPOINT (Decoupled Background Execution)
 app.post(['/api/analyze-images', '/analyze-images'], async (req, res) => {
   try {
     const { images } = req.body;
@@ -534,32 +534,40 @@ app.post(['/api/analyze-images', '/analyze-images'], async (req, res) => {
     currentStatus.data = {};
     updateStatus('starting', 'Starting analysis...', { totalImages: storedImages.length });
 
+    // 1. Respond immediately to the extension to clear the HTTP request pipeline
     res.json({ 
       success: true, 
-      message: 'Analysis started',
+      message: 'Analysis started in background processing.',
       totalImages: storedImages.length
     });
 
-    try {
-      const results = await runAutomation(storedImages);
-      console.log('[AUTOMATION] Analysis completed successfully');
-      updateStatus('analysis_complete', 'Analysis complete! Click Generate First Image when ready.', {
-        totalImages: results.totalImages,
-        generatedImages: results.generatedImages,
-        analysis: results.analysis
+    // 2. Offload execution safely to a background microtask layer
+    runAutomation(storedImages)
+      .then((results) => {
+        console.log('[AUTOMATION] Analysis completed successfully');
+        updateStatus('analysis_complete', 'Analysis complete! Click Generate First Image when ready.', {
+          totalImages: results.totalImages,
+          generatedImages: results.generatedImages,
+          analysis: results.analysis
+        });
+      })
+      .catch((err) => {
+        console.error('[AUTOMATION] Background Process Error:', err);
+        updateStatus('error', err.message);
+      })
+      .finally(() => {
+        isRunning = false;
       });
-    } catch (err) {
-      console.error('[AUTOMATION] Error:', err);
-      updateStatus('error', err.message);
-    } finally {
-      isRunning = false;
-    }
 
   } catch (error) {
-    console.error('[ERROR] Analyze endpoint:', error);
+    console.error('[ERROR] Analyze endpoint initiation failed:', error);
     updateStatus('error', error.message);
     isRunning = false;
-    res.status(500).json({ success: false, error: error.message });
+    
+    // Safety Check: Only send error status back if headers haven't already been flushed
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 
