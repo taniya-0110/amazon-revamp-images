@@ -1157,25 +1157,24 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
   async saveLastGeneratedImage(page, imageNumber, previousSources = []) {
     try {
       let candidate = null;
-      const previousSourceSet = new Set(previousSources.filter(Boolean));
 
-      // Wait for image to appear with retries
+      // 🔄 FIX: Use robust, index-based detection instead of checking dynamic URL strings
       for (let attempt = 0; attempt < 180; attempt++) {
         const candidates = await this.getGeneratedImageCandidates(page);
-        const newCandidates = candidates.filter((item) => item.src && !previousSourceSet.has(item.src));
-        candidate = newCandidates.length > 0 ? newCandidates[newCandidates.length - 1] : null;
-
-        if (candidate) {
-          console.log(`Found new generated image: ${candidate.src.substring(0, 50)}...`);
+        
+        // Since imageNumber is 1-indexed, wait until the chat contains at least that many generated images
+        if (candidates.length >= imageNumber) {
+          candidate = candidates[imageNumber - 1]; // Select the exact image generated for this turn
+          console.log(`Found generated image at expected index ${imageNumber - 1}: ${candidate.src.substring(0, 50)}...`);
           break;
         }
         
-        console.log(`Waiting for new image ${imageNumber} to appear... (attempt ${attempt + 1}/180)`);
+        console.log(`Waiting for new image ${imageNumber} to appear... (current chat images: ${candidates.length}/${imageNumber}, attempt ${attempt + 1}/180)`);
         await page.waitForTimeout(1000);
       }
 
       if (!candidate) {
-        console.log('No new generated image found');
+        console.log(`No generated image found at index position ${imageNumber - 1}`);
         return null;
       }
 
@@ -1188,12 +1187,11 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
       try {
         // Try to fetch from browser first
-        console.log(`  ?? Fetching image data for Image ${imageNumber}...`);
+        console.log(`  🔍 Fetching image data for Image ${imageNumber}...`);
         
         const base64 = await page.evaluate(async ({ src, messageIndex, imageIndex, source }) => {
           let imageSrc = src;
           
-          // If we have message and image indices, try to get from DOM
           if (source === 'assistant_message' && messageIndex !== undefined && imageIndex !== undefined) {
             const messages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
             const img = messages[messageIndex]?.querySelectorAll('img')?.[imageIndex];
