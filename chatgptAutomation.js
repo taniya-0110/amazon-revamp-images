@@ -1600,7 +1600,17 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
             delete normalized.session;
             delete normalized.storeId;
             delete normalized.id;
-            if (!normalized.url && !normalized.domain) normalized.url = 'https://chatgpt.com';
+            
+            // FIX: Prevent Playwright validation crashes by forcing EITHER url OR domain.
+            // We strip domain and force a secure URL context, which is mandatory for __Secure- cookies.
+            if (normalized.domain) {
+              const domainClean = normalized.domain.startsWith('.') ? normalized.domain.substring(1) : normalized.domain;
+              normalized.url = `https://${domainClean}`;
+              delete normalized.domain; 
+            } else if (!normalized.url) {
+              normalized.url = 'https://chatgpt.com';
+            }
+            
             if (normalized.expirationDate && !normalized.expires) {
               normalized.expires = Math.floor(normalized.expirationDate);
             }
@@ -1619,24 +1629,42 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       // 1. Check for chunked format (.0, .1) in environment variables
       if (chunk0) {
         if (!chunk1) {
-          throw new Error('CHATGPT_SESSION_TOKEN_1 is missing. Configure both chunk variables, or configure the combined CHATGPT_SESSION_TOKEN.');
+          throw new Error('CHATGPT_SESSION_TOKEN_1 is missing. Configure both chunk variables.');
         }
         console.log('?? Detected chunked session tokens. Reassembling multi-part array...');
         
-        // FIX: Clean and stitch the chunks together into a single usable token string
-        const combinedToken = (chunk0 + chunk1).replace(/["'\r\n]/g, '').trim();
+        const cleanChunk0 = chunk0.replace(/["'\r\n]/g, '').trim();
+        const cleanChunk1 = chunk1.replace(/["'\r\n]/g, '').trim();
 
+        // Strategy A: Inject as split cookies (NextAuth standard behavior for cookies > 4KB)
+        cookies.push({
+          name: '__Secure-next-auth.session-token.0',
+          value: cleanChunk0,
+          url: 'https://chatgpt.com',
+          secure: true,
+          httpOnly: true,
+          sameSite: 'Lax'
+        });
+        cookies.push({
+          name: '__Secure-next-auth.session-token.1',
+          value: cleanChunk1,
+          url: 'https://chatgpt.com',
+          secure: true,
+          httpOnly: true,
+          sameSite: 'Lax'
+        });
+
+        // Strategy B: Inject as a unified cookie (Fallback just in case middleware expects it merged)
         cookies.push({
           name: '__Secure-next-auth.session-token',
-          value: combinedToken,
+          value: cleanChunk0 + cleanChunk1,
           url: 'https://chatgpt.com',
-          domain: '.chatgpt.com', 
           secure: true,
           httpOnly: true,
           sameSite: 'Lax'
         });
       } 
-      // 2. Fallback to single token if it wasn't split split yet
+      // 2. Fallback to single token if it wasn't split yet
       else {
         if (!singleToken) {
           console.log('?? No session tokens or chunks found in environment variables.');
@@ -1645,9 +1673,8 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
         const cleanToken = singleToken.replace(/["'\r\n]/g, '').trim();
         
-        // If the single token happens to be massive (> 4000 chars), manually split it to be safe
         if (cleanToken.length > 4000) {
-          console.log('Single token is extremely long. Auto-splitting into chunks to prevent rejection...');
+          console.log('Single token is extremely long. Auto-splitting into chunks...');
           cookies.push({
             name: '__Secure-next-auth.session-token.0',
             value: cleanToken.substring(0, 4000),
@@ -1659,6 +1686,14 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
           cookies.push({
             name: '__Secure-next-auth.session-token.1',
             value: cleanToken.substring(4000),
+            url: 'https://chatgpt.com',
+            secure: true,
+            httpOnly: true,
+            sameSite: 'Lax'
+          });
+          cookies.push({
+            name: '__Secure-next-auth.session-token',
+            value: cleanToken,
             url: 'https://chatgpt.com',
             secure: true,
             httpOnly: true,
@@ -1683,7 +1718,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       return [];
     }
   }
-  
+
   async cleanup() {
     console.log("🧹 [AUTOMATION] Running internal cleanup routine...");
     
