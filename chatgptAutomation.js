@@ -1585,7 +1585,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
   async fetchLiveCookies() {
     try {
-      // Preferred form: the complete cookie array exported from an authenticated session
+      // 1. Preferred form: the complete cookie array exported from an authenticated session
       const exportedCookies = process.env.CHATGPT_COOKIES;
       if (exportedCookies) {
         const parsed = JSON.parse(exportedCookies);
@@ -1601,15 +1601,20 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
             delete normalized.storeId;
             delete normalized.id;
             
-            // FIX: Prevent Playwright validation crashes by forcing EITHER url OR domain.
-            // We strip domain and force a secure URL context, which is mandatory for __Secure- cookies.
-            if (normalized.domain) {
-              const domainClean = normalized.domain.startsWith('.') ? normalized.domain.substring(1) : normalized.domain;
-              normalized.url = `https://${domainClean}`;
-              delete normalized.domain; 
-            } else if (!normalized.url) {
-              normalized.url = 'https://chatgpt.com';
+            // Format strictly to use domain + path to avoid Playwright conflicts
+            if (!normalized.domain && normalized.url) {
+              try {
+                const parsedUrl = new URL(normalized.url);
+                normalized.domain = parsedUrl.hostname.startsWith('.') ? parsedUrl.hostname : `.${parsedUrl.hostname}`;
+              } catch (e) {
+                normalized.domain = '.chatgpt.com';
+              }
+            } else if (!normalized.domain) {
+              normalized.domain = '.chatgpt.com';
             }
+            
+            normalized.path = normalized.path || '/';
+            delete normalized.url; // Prevent "either url or domain" validation crashes
             
             if (normalized.expirationDate && !normalized.expires) {
               normalized.expires = Math.floor(normalized.expirationDate);
@@ -1626,90 +1631,52 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       const chunk1 = process.env.CHATGPT_SESSION_TOKEN_1;
       const singleToken = this.sessionToken || process.env.CHATGPT_SESSION_TOKEN;
 
-      // 1. Check for chunked format (.0, .1) in environment variables
-      if (chunk0) {
-        if (!chunk1) {
-          throw new Error('CHATGPT_SESSION_TOKEN_1 is missing. Configure both chunk variables.');
-        }
-        console.log('?? Detected chunked session tokens. Reassembling multi-part array...');
+      // 2. Main Strategy: Handle chunked format (.0, .1) allocated in your environment variables
+      if (chunk0 && chunk1) {
+        console.log('?? Detected chunked session tokens. Injecting separate multi-part cookies...');
         
         const cleanChunk0 = chunk0.replace(/["'\r\n]/g, '').trim();
         const cleanChunk1 = chunk1.replace(/["'\r\n]/g, '').trim();
 
-        // Strategy A: Inject as split cookies (NextAuth standard behavior for cookies > 4KB)
+        // Inject Chunk 0 (Kept under 4KB limit)
         cookies.push({
           name: '__Secure-next-auth.session-token.0',
           value: cleanChunk0,
-          url: 'https://chatgpt.com',
-          secure: true,
-          httpOnly: true,
-          sameSite: 'Lax'
-        });
-        cookies.push({
-          name: '__Secure-next-auth.session-token.1',
-          value: cleanChunk1,
-          url: 'https://chatgpt.com',
+          domain: '.chatgpt.com',
+          path: '/',
           secure: true,
           httpOnly: true,
           sameSite: 'Lax'
         });
 
-        // Strategy B: Inject as a unified cookie (Fallback just in case middleware expects it merged)
+        // Inject Chunk 1 (Kept under 4KB limit)
         cookies.push({
-          name: '__Secure-next-auth.session-token',
-          value: cleanChunk0 + cleanChunk1,
-          url: 'https://chatgpt.com',
+          name: '__Secure-next-auth.session-token.1',
+          value: cleanChunk1,
+          domain: '.chatgpt.com',
+          path: '/',
           secure: true,
           httpOnly: true,
           sameSite: 'Lax'
         });
       } 
-      // 2. Fallback to single token if it wasn't split yet
-      else {
-        if (!singleToken) {
-          console.log('?? No session tokens or chunks found in environment variables.');
-          return [];
-        }
-
+      // 3. Fallback: Single token setup (Only runs if chunks don't exist and token is small)
+      else if (singleToken && singleToken.length < 4000) {
+        console.log('Injecting single-token configuration...');
         const cleanToken = singleToken.replace(/["'\r\n]/g, '').trim();
         
-        if (cleanToken.length > 4000) {
-          console.log('Single token is extremely long. Auto-splitting into chunks...');
-          cookies.push({
-            name: '__Secure-next-auth.session-token.0',
-            value: cleanToken.substring(0, 4000),
-            url: 'https://chatgpt.com',
-            secure: true,
-            httpOnly: true,
-            sameSite: 'Lax'
-          });
-          cookies.push({
-            name: '__Secure-next-auth.session-token.1',
-            value: cleanToken.substring(4000),
-            url: 'https://chatgpt.com',
-            secure: true,
-            httpOnly: true,
-            sameSite: 'Lax'
-          });
-          cookies.push({
-            name: '__Secure-next-auth.session-token',
-            value: cleanToken,
-            url: 'https://chatgpt.com',
-            secure: true,
-            httpOnly: true,
-            sameSite: 'Lax'
-          });
-        } else {
-          console.log('Injecting single-token configuration...');
-          cookies.push({
-            name: '__Secure-next-auth.session-token',
-            value: cleanToken,
-            url: 'https://chatgpt.com',
-            secure: true,
-            httpOnly: true,
-            sameSite: 'Lax'
-          });
-        }
+        cookies.push({
+          name: '__Secure-next-auth.session-token',
+          value: cleanToken,
+          domain: '.chatgpt.com',
+          path: '/',
+          secure: true,
+          httpOnly: true,
+          sameSite: 'Lax'
+        });
+      } else {
+        console.log('⚠️ Session tokens are missing or misconfigured for direct injection.');
+        return [];
       }
 
       return cookies;
