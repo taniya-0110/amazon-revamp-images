@@ -1585,8 +1585,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
   async fetchLiveCookies() {
     try {
-      // Preferred form: the complete cookie array exported from an authenticated
-      // chatgpt.com browser session. This preserves every cookie ChatGPT needs.
+      // Preferred form: the complete cookie array exported from an authenticated session
       const exportedCookies = process.env.CHATGPT_COOKIES;
       if (exportedCookies) {
         const parsed = JSON.parse(exportedCookies);
@@ -1612,30 +1611,33 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
 
       const cookies = [];
       
-      // 1. Check for chunked format (.0, .1) in environment variables
+      // Extract environment tokens safely
       const chunk0 = process.env.CHATGPT_SESSION_TOKEN_0;
       const chunk1 = process.env.CHATGPT_SESSION_TOKEN_1;
+      const singleToken = this.sessionToken || process.env.CHATGPT_SESSION_TOKEN;
 
+      // 1. Check for chunked format (.0, .1) in environment variables
       if (chunk0) {
         if (!chunk1) {
           throw new Error('CHATGPT_SESSION_TOKEN_1 is missing. Configure both chunk variables, or configure the combined CHATGPT_SESSION_TOKEN.');
         }
-        console.log('?? Detected chunked session tokens. Building multi-part cookie array...');
+        console.log('?? Detected chunked session tokens. Reassembling multi-part array...');
         
+        // FIX: Clean and stitch the chunks together into a single usable token string
+        const combinedToken = (chunk0 + chunk1).replace(/["'\r\n]/g, '').trim();
+
         cookies.push({
           name: '__Secure-next-auth.session-token',
-          value: cleanToken,
+          value: combinedToken,
           url: 'https://chatgpt.com',
-          domain: '.chatgpt.com', // Explicitly share token authorization context across routes
+          domain: '.chatgpt.com', 
           secure: true,
           httpOnly: true,
           sameSite: 'Lax'
         });
       } 
-      // 2. Fallback to single token if it wasn't split yet
+      // 2. Fallback to single token if it wasn't split split yet
       else {
-        const singleToken = this.sessionToken || process.env.CHATGPT_SESSION_TOKEN;
-        
         if (!singleToken) {
           console.log('?? No session tokens or chunks found in environment variables.');
           return [];
@@ -1681,6 +1683,7 @@ Wait for the next instruction before generating Image ${imageNumber + 1}.`;
       return [];
     }
   }
+  
   async cleanup() {
     console.log("🧹 [AUTOMATION] Running internal cleanup routine...");
     
