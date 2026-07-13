@@ -3,11 +3,14 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
-const { exec } = require('child_process');
 
-const ChatGPTAutomation = require('./chatgptAutomation');
-
+// Initialize environment variables FIRST before loading internal scripts
 dotenv.config();
+dotenv.config(); 
+console.log("🔍 [DIAGNOSTIC] Is Token Detected by Render?:", !!process.env.CHATGPT_SESSION_TOKEN || (!!process.env.CHATGPT_SESSION_TOKEN_0 && !!process.env.CHATGPT_SESSION_TOKEN_1));
+
+const { exec } = require('child_process');
+const ChatGPTAutomation = require('./chatgptAutomation');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
